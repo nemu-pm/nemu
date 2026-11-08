@@ -1220,14 +1220,14 @@ describe("persistent side bar capsule alignment", () => {
 });
 
 describe("capsule action slots", () => {
-  test("Japanese Learning takes two slots, other plugins one, plus settings and the bilingual toggle", () => {
-    expect(mobileReaderCapsuleActionSlots({ enabledPluginIds: [], bilingualToggle: false })).toBe(1);
+  test("Japanese Learning takes two slots, other plugins one, plus chapters, settings and the bilingual toggle", () => {
+    expect(mobileReaderCapsuleActionSlots({ enabledPluginIds: [], bilingualToggle: false })).toBe(2);
     expect(
       mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning"], bilingualToggle: false }),
-    ).toBe(3);
+    ).toBe(4);
     expect(
       mobileReaderCapsuleActionSlots({ enabledPluginIds: ["japanese-learning", "other"], bilingualToggle: true }),
-    ).toBe(5);
+    ).toBe(6);
   });
 
   test("the reader derives the count in the same render as the pose (no one-frame lag)", async () => {

@@ -618,6 +618,10 @@ export const mobileStringsZh: MobileStrings = {
     readingDirection: "阅读方向",
     rtl: "右至左",
     ltr: "左至右",
+    chapterList: "章节",
+    closeChapterList: "关闭章节列表",
+    chapterListCurrent: "当前章节",
+    chapterListEmpty: "没有可显示的章节",
     lockedChapter: "已锁定章节",
     chapterLockedTitle: "此章节已锁定",
     chapterLockedDetail:

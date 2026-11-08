@@ -401,7 +401,7 @@ export function mobileReaderScrollStableTopInset(input: {
 /**
  * Icon buttons in the actions capsule: Japanese Learning contributes two
  * (detect text, nemu chat), every other enabled plugin one, plus the bilingual
- * toggle when shown and settings.
+ * toggle when shown, the chapter list and settings.
  */
 export function mobileReaderCapsuleActionSlots(input: {
   enabledPluginIds: readonly string[];
@@ -411,7 +411,7 @@ export function mobileReaderCapsuleActionSlots(input: {
     (count, id) => count + (id === "japanese-learning" ? 2 : 1),
     0,
   );
-  return pluginSlots + (input.bilingualToggle ? 1 : 0) + 1;
+  return pluginSlots + (input.bilingualToggle ? 1 : 0) + 2;
 }
 
 /** Width of the actions capsule for `count` icon buttons. */

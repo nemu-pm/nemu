@@ -545,6 +545,10 @@ export type MobileStrings = {
     readingDirection: string;
     rtl: string;
     ltr: string;
+    chapterList: string;
+    closeChapterList: string;
+    chapterListCurrent: string;
+    chapterListEmpty: string;
     lockedChapter: string;
     chapterLockedTitle: string;
     chapterLockedDetail: string;

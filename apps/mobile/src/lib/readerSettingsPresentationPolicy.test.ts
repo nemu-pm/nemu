@@ -56,6 +56,8 @@ describe("the reader under the open settings", () => {
     expect(start).toBeGreaterThanOrEqual(0);
     const sheets = reader.slice(start, end);
     expect(sheets).not.toContain("readerDisplaySettingsOpen");
+    // The chapter sheet too: it is presented as the settings are.
+    expect(sheets).not.toContain("readerChapterListOpen");
     expect(sheets).toContain("japaneseLearningOcrSheetVisible");
   });
 });

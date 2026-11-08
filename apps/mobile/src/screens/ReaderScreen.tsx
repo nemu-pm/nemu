@@ -210,6 +210,10 @@ import {
   ReaderSettingsNativePopover,
   readerSettingsNativePopoverAvailable,
 } from "@/components/reader/ReaderSettingsNativePopover";
+import { ReaderChapterListSheet } from "@/components/reader/ReaderChapterListSheet";
+import { useReaderChapterListData } from "@/components/reader/useReaderChapterListData";
+import { buildMobileReaderChapterList } from "@/lib/mobileReaderChapterList";
+import { DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE } from "@/lib/mobileChapterFilters";
 import {
   readerNotebookSheetMaxHeight,
   readerSettingsPopoverAvailableHeight,
@@ -795,6 +799,8 @@ if (Platform.OS === "ios") {
     mobileReaderPluginGlyph("copy-outline"),
   ]);
 }
+
+const EMPTY_READER_CHAPTER_PROGRESS: Record<string, LocalChapterProgress | undefined> = {};
 
 type ReaderPagesState =
   | { status: "idle"; pages: MobileReaderPage[]; detail: string }
@@ -1839,6 +1845,7 @@ export function ReaderScreen() {
     useState(false);
   const [readerDisplaySettingsOpen, setReaderDisplaySettingsOpen] =
     useState(false);
+  const [readerChapterListOpen, setReaderChapterListOpen] = useState(false);
   const openReaderPluginSettingsAfterDisplaySettingsRef = useRef(false);
   const [selectedReaderPluginSettingsId, setSelectedReaderPluginSettingsId] =
     useState<string | null>(null);
@@ -5240,6 +5247,7 @@ export function ReaderScreen() {
         });
   const readerInteractionSurfaceOpen =
     readerDisplaySettingsOpen ||
+    readerChapterListOpen ||
     readerPluginSettingsOpen ||
     japaneseLearningLauncherVisible ||
     japaneseLearningSurfaceOpen ||
@@ -5247,6 +5255,7 @@ export function ReaderScreen() {
   useEffect(() => {
     if (!showReaderChrome) {
       setReaderDisplaySettingsOpen(false);
+      setReaderChapterListOpen(false);
     }
   }, [showReaderChrome]);
   const readerMaxPagedImageHeight = readerStageConstrained
@@ -6129,13 +6138,14 @@ export function ReaderScreen() {
   const goToChapter = useCallback(
     (
       targetChapter: ChapterSummary | null,
-      options?: { startAt?: "start" | "end" },
+      options?: { startAt?: "start" | "end" | "saved" },
     ) => {
       if (!targetChapter) {
         void hapticError();
         return;
       }
-      const page = options?.startAt === "end" ? Number.MAX_SAFE_INTEGER : 1;
+      // "saved": no page, so the chapter opens where its progress says (as from the detail page).
+      const page = options?.startAt === "saved" ? null : options?.startAt === "end" ? Number.MAX_SAFE_INTEGER : 1;
       setActiveReaderPluginId(null);
       setEndOfChapterPromptVisible(false);
       setEndOfChapterProgressSaving(false);
@@ -6150,7 +6160,7 @@ export function ReaderScreen() {
           sourceId: routeRef.sourceId,
           mangaId,
           chapter: targetChapter,
-          page: String(page),
+          page: page === null ? undefined : String(page),
           mangaTitle,
           // The chapter comes in from the side it reads on (RTL: the next
           // one from the left), as a page turn does.
@@ -6230,6 +6240,7 @@ export function ReaderScreen() {
   const showEndOfChapterPrompt = useCallback((reason = "past-last-page") => {
     if (
       readerDisplaySettingsOpen ||
+      readerChapterListOpen ||
       readerPluginSettingsOpen ||
       japaneseLearningLauncherVisible ||
       japaneseLearningOcrSheetVisible ||
@@ -6291,6 +6302,7 @@ export function ReaderScreen() {
     japaneseLearningTranscriptVisible,
     persistEndOfChapterCompletion,
     nextChapterInReadingOrder,
+    readerChapterListOpen,
     readerDisplaySettingsOpen,
     readerPluginSettingsOpen,
   ]);
@@ -6305,6 +6317,7 @@ export function ReaderScreen() {
   const showPreviousChapterFromEnd = useCallback(() => {
     if (
       readerDisplaySettingsOpen ||
+      readerChapterListOpen ||
       readerPluginSettingsOpen ||
       japaneseLearningLauncherVisible ||
       japaneseLearningOcrSheetVisible ||
@@ -6332,6 +6345,7 @@ export function ReaderScreen() {
     japaneseLearningOcrSheetVisible,
     japaneseLearningTranscriptVisible,
     previousChapterInReadingOrder,
+    readerChapterListOpen,
     readerDisplaySettingsOpen,
     readerPluginSettingsOpen,
   ]);
@@ -11911,6 +11925,67 @@ export function ReaderScreen() {
     }, 5000);
     return () => clearTimeout(timer);
   }, [askJapaneseLearningSentence, japaneseLearningGrammarState.status]);
+  // The chapter sheet (Apple Books' contents): presented as the settings are,
+  // a popover's arrow at its own button, the settings' slot's neighbour.
+  const readerChapterListButtonRef = useRef<ViewInstance>(null);
+  const [readerChapterListAnchor, setReaderChapterListAnchor] = useState<WindowLayoutRect | null>(null);
+  const measureReaderChapterListAnchor = useCallback((then?: () => void) => {
+    const node = readerChapterListButtonRef.current;
+    if (!node) {
+      then?.();
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        setReaderChapterListAnchor((current) =>
+          current && current.x === x && current.y === y && current.width === width && current.height === height
+            ? current
+            : { x, y, width, height },
+        );
+      }
+      then?.();
+    });
+  }, []);
+  const openReaderChapterList = useCallback(() => {
+    measureReaderChapterListAnchor(() => setReaderChapterListOpen(true));
+  }, [measureReaderChapterListAnchor]);
+  const closeReaderChapterList = useCallback(() => setReaderChapterListOpen(false), []);
+  useEffect(() => {
+    if (!readerChapterListOpen) return;
+    const frame = requestAnimationFrame(() => measureReaderChapterListAnchor());
+    return () => cancelAnimationFrame(frame);
+  }, [measureReaderChapterListAnchor, readerChapterListOpen, readerPose]);
+  const readerChapterListData = useReaderChapterListData({
+    open: readerChapterListOpen,
+    store,
+    source: state.sourceLink ?? routeSourceRef,
+    installedSources: selectedInstalledSource ? [selectedInstalledSource] : [],
+    libraryItemId: state.entry?.item.libraryItemId ?? null,
+    chaptersKnown: readerChaptersKnown,
+  });
+  const readerChapterList = useMemo(
+    () =>
+      buildMobileReaderChapterList(
+        readerChaptersKnown ? readerChapters : (readerChapterListData?.cachedChapters ?? []),
+        readerChapterListData?.preference ?? DEFAULT_MOBILE_CHAPTER_LIST_PREFERENCE,
+        chapterId,
+      ),
+    [chapterId, readerChapterListData, readerChapters, readerChaptersKnown],
+  );
+  const selectReaderChapterFromList = useCallback(
+    (target: ChapterSummary, startAt: "start" | "saved") => goToChapter(target, { startAt }),
+    [goToChapter],
+  );
+  const readerChapterListAnchorRect: WindowLayoutRect | null =
+    readerChapterListAnchor ??
+    (readerPose.chrome.kind === "capsules"
+      ? {
+          x: readerPose.chrome.actions.x + readerPose.chrome.actions.width - 46 - READER_CAPSULE_ACTION_WIDTH,
+          y: readerPose.chrome.actions.y,
+          width: READER_CAPSULE_ACTION_WIDTH,
+          height: READER_CAPSULE_HEIGHT,
+        }
+      : null);
   // Unmeasured (first frame): the settings slot is the actions capsule's last one.
   const readerSettingsAnchorRect: WindowLayoutRect | null =
     measuredReaderSettingsAnchor ??
@@ -11928,7 +12003,8 @@ export function ReaderScreen() {
   // With the vertical bar the settings sheet rises over the whole reader
   // (its own bar replaces the reader's): the chrome fades out under it
   // instead of being cut off by the sheet's edge, and back in after.
-  const readerChromeUnderSheet = readerSideBar && useNativeReaderSettings && readerDisplaySettingsOpen;
+  const readerChromeUnderSheet =
+    readerSideBar && useNativeReaderSettings && (readerDisplaySettingsOpen || readerChapterListOpen);
   // The cover view (outer display) puts the capsule pieces (title, scrubber) away; only the bar's items stay.
   const readerChromePresent =
     showReaderChrome && !endOfChapterPromptVisible && !readerChromeUnderSheet && !readerCoverViewShown;
@@ -12520,6 +12596,30 @@ export function ReaderScreen() {
         />,
       );
     }
+    const chapterListButton = (
+      <View ref={readerChapterListButtonRef} collapsable={false}>
+      <NemuPressable
+        accessibilityRole="button"
+        accessibilityLabel={strings.reader.chapterList}
+        accessibilityState={{ selected: readerChapterListOpen }}
+        onPress={openReaderChapterList}
+        pressedScale={0.98}
+        style={[
+          chromeButtonStyle,
+          {
+            backgroundColor: "transparent",
+            opacity: readerChromeLoading ? READER_CHROME_LOADING_OPACITY : 1,
+          },
+        ]}
+      >
+        <Ionicons
+          name={MOBILE_READER_CHROME_GLYPHS.chapterList.name}
+          size={MOBILE_READER_CHROME_GLYPHS.chapterList.size}
+          color={readerChapterListOpen ? readerChromeColors.primaryText : readerChromeColors.secondaryText}
+        />
+      </NemuPressable>
+      </View>
+    );
     const settingsButton = (
       <View ref={readerSettingsButtonRef} collapsable={false}>
       <NemuPressable
@@ -12605,6 +12705,7 @@ export function ReaderScreen() {
           ]}
         >
           {pluginActions}
+          {chapterListButton}
           {settingsButton}
         </ReaderCapsule>
       );
@@ -13096,6 +13197,14 @@ export function ReaderScreen() {
               />
             ) : null}
             <Stack.Toolbar.Button
+              icon={readerBarIconImages?.chapterList ?? "list.bullet"}
+              iconRenderingMode="template"
+              tintColor={READER_CAPSULE_COLORS.primaryText}
+              accessibilityLabel={strings.reader.chapterList}
+              hidden={readerBarItemsHidden || readerCoverViewShown}
+              onPress={openReaderChapterList}
+            />
+            <Stack.Toolbar.Button
               icon={readerBarIconImages?.settings ?? "gearshape"}
               iconRenderingMode="template"
               tintColor={READER_CAPSULE_COLORS.primaryText}
@@ -13397,6 +13506,48 @@ export function ReaderScreen() {
           onTogglePlugin={toggleReaderPluginSetting}
           onResetPlugin={resetReaderPluginSettings}
           onChangePluginValue={changeReaderPluginSetting}
+        />
+      </ReaderDarkThemeScope>
+
+      <ReaderDarkThemeScope>
+        <ReaderChapterListSheet
+          visible={readerChapterListOpen && readerChapterListData !== null && !endOfChapterPromptVisible}
+          mangaTitle={mangaTitle ?? ""}
+          subtitle={[
+            formatChapterRowTitle(chapter, strings, { dropVolume: false }),
+            pageCount > 0
+              ? formatMobileString(strings.reader.pageValue, { page: visibleProgressPageIndex + 1, total: pageCount })
+              : null,
+          ].filter(Boolean).join(" · ")}
+          list={readerChapterList}
+          currentChapterId={chapterId}
+          progressById={readerChapterListData?.progressById ?? EMPTY_READER_CHAPTER_PROGRESS}
+          strings={strings}
+          onClose={closeReaderChapterList}
+          onSelectChapter={selectReaderChapterFromList}
+          anchor={readerChapterListAnchorRect}
+          regularWidth={mobileAdaptiveLayout(readerWindowLayout).regularWidth}
+          maxSheetHeight={readerNotebookSheetCap}
+          pageInteractive={readerBookPosture}
+          availableHeight={
+            readerChapterListAnchorRect
+              ? readerSettingsPopoverAvailableHeight({
+                  anchor: readerChapterListAnchorRect,
+                  bounds: readerPose.bounds,
+                  safeInsets: readerPose.safeInsets,
+                })
+              : 0
+          }
+          settingsRows={{
+            showPageTurn: pageCurlAvailable && galleryPagedMode,
+            showCameraMode: outerReaderCanvas,
+            twoPageSupported: readerPageLayoutVisible,
+            showPagePairingControls: readerPageLayoutVisible && showPagePairingControls,
+            scrolling: mode === "scrolling",
+            showPlugins: showReaderPluginSettingsEntry,
+            showMarkComplete: !completed && !mobileDesignExploreFlag,
+            showOrientationLock: readerOrientationLockAvailable,
+          }}
         />
       </ReaderDarkThemeScope>
 

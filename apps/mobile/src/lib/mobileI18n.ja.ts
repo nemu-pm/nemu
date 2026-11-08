@@ -660,6 +660,10 @@ export const mobileStringsJa: MobileStrings = {
     readingDirection: "読み方向",
     rtl: "右から左",
     ltr: "左から右",
+    chapterList: "話一覧",
+    closeChapterList: "話一覧を閉じる",
+    chapterListCurrent: "現在の話",
+    chapterListEmpty: "表示できる話がありません",
     lockedChapter: "ロックされた話",
     chapterLockedTitle: "この話はロックされています",
     chapterLockedDetail:

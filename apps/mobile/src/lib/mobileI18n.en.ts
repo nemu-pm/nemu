@@ -656,6 +656,10 @@ export const mobileStringsEn: MobileStrings = {
     readingDirection: "Reading direction",
     rtl: "RTL",
     ltr: "LTR",
+    chapterList: "Chapters",
+    closeChapterList: "Close chapters",
+    chapterListCurrent: "Current chapter",
+    chapterListEmpty: "No chapters to show",
     lockedChapter: "Locked chapter",
     chapterLockedTitle: "This chapter is locked",
     chapterLockedDetail:

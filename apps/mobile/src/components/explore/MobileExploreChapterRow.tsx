@@ -160,7 +160,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
 
   return (
     <View>
-      {header ? <VolumeHeader header={header} strings={strings} /> : null}
+      {header ? <MobileExploreChapterVolumeHeader header={header} strings={strings} /> : null}
       <ContextMenuView items={items} onMenuAction={menu} style={styles.menu}>
         <NemuPressable
           accessibilityRole="button"
@@ -181,11 +181,11 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
         >
           <View style={styles.glyph}>
             {presentation.isLocked ? (
-              <LockGlyph color={glyphColor} />
+              <MobileChapterLockGlyph color={glyphColor} />
             ) : presentation.isRead ? (
-              <CheckGlyph color={glyphColor} />
+              <MobileChapterCheckGlyph color={glyphColor} />
             ) : ratio !== null ? (
-              <RingGlyph color={glyphColor} track={nemuColorWithAlpha(glyphColor, 0.22)} ratio={ratio} />
+              <MobileChapterProgressGlyph color={glyphColor} track={nemuColorWithAlpha(glyphColor, 0.22)} ratio={ratio} />
             ) : null}
           </View>
           <View style={[styles.text, styles.textRow, { borderBottomColor: upNext && chapterPalette ? "transparent" : chapterPalette?.rule ?? tokens.border }]}>
@@ -238,7 +238,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   );
 });
 
-function VolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; strings: MobileStrings }) {
+export function MobileExploreChapterVolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; strings: MobileStrings }) {
   const { tokens } = useNemuTheme();
   const { chapterPalette } = useMobileMangaDetailPane();
   const secondary = chapterPalette?.inkSecondary ?? tokens.mutedForeground;
@@ -265,7 +265,7 @@ function VolumeHeader({ header, strings }: { header: MobileChapterVolumeHeader; 
   );
 }
 
-function CheckGlyph({ color }: { color: string }) {
+export function MobileChapterCheckGlyph({ color }: { color: string }) {
   return (
     <Svg width={GLYPH} height={GLYPH} viewBox="0 0 18 18">
       <Path d="M4.5 9.4 7.6 12.4 13.5 5.8" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -273,7 +273,7 @@ function CheckGlyph({ color }: { color: string }) {
   );
 }
 
-function LockGlyph({ color }: { color: string }) {
+export function MobileChapterLockGlyph({ color }: { color: string }) {
   return (
     <Svg width={GLYPH} height={GLYPH} viewBox="0 0 18 18">
       <Rect x={4.2} y={8} width={9.6} height={7} rx={1.8} stroke={color} strokeWidth={STROKE} fill="none" />
@@ -286,7 +286,7 @@ function LockGlyph({ color }: { color: string }) {
  * Pages read, as a pie that fills clockwise from the top inside a thin
  * outline: a static amount, never mistaken for an activity ring.
  */
-function RingGlyph({ color, track, ratio }: { color: string; track: string; ratio: number }) {
+export function MobileChapterProgressGlyph({ color, track, ratio }: { color: string; track: string; ratio: number }) {
   const shown = Math.max(0.08, Math.min(0.999, ratio));
   const angle = shown * Math.PI * 2;
   const r = 5;
