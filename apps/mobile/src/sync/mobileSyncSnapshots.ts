@@ -8,12 +8,6 @@ export {
   mergeCollectionSnapshot,
   mergeLibrarySnapshot,
 } from "@nemu/core";
-export type {
-  CloudChapterProgress as MobileCloudChapterProgress,
-  CloudLibraryItem as MobileCloudLibraryItem,
-  CloudMangaProgress as MobileCloudMangaProgress,
-  CloudSourceLink as MobileCloudSourceLink,
-} from "@nemu/core";
 import { mergeInstalledSources as mergeCoreInstalledSources } from "@nemu/core";
 import type { InstalledSource } from "@/data/schema";
 
@@ -31,10 +25,6 @@ const MOBILE_INSTALLED_SOURCE_LOCAL_FIELDS = [
   "packageCacheKey",
   "packageMetadata",
 ] as const;
-
-export type MobileCloudSettings = {
-  installedSources?: InstalledSource[];
-};
 
 export function mergeMobileInstalledSources(
   localSources: InstalledSource[],

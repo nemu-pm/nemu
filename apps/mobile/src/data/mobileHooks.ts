@@ -29,7 +29,6 @@ import type {
   AppLanguage,
   InstalledSource,
   LibraryEntry,
-  LocalChapterProgress,
   LocalCollection,
   LocalLibraryItem,
   LocalMangaProgress,
@@ -699,49 +698,6 @@ export function useCompletedChapters(
   }, [revision, signature, store]);
 
   return completed;
-}
-
-export function useMangaChapterProgress(
-  registryId: string | null | undefined,
-  sourceId: string | null | undefined,
-  mangaId: string | null | undefined,
-): LoadState<Record<string, LocalChapterProgress>> {
-  const store = useMobileDataStore();
-  const revision = useMobileDataRevision(["progress"]);
-  const normalizedRegistryId = registryId?.trim() || null;
-  const normalizedSourceId = sourceId?.trim() || null;
-  const normalizedMangaId = mangaId?.trim() || null;
-  const [data, setData] = useState<Record<string, LocalChapterProgress>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      setError(null);
-      const progress =
-        normalizedRegistryId && normalizedSourceId && normalizedMangaId
-          ? await store.getMangaChapterProgress(
-              normalizedRegistryId,
-              normalizedSourceId,
-              normalizedMangaId,
-            )
-          : {};
-      // Progress emits fire on every page turn; an unchanged map must not
-      // re-key chapter-list memos.
-      setData((current) => keepReferenceIfUnchanged(current, progress));
-    } catch (nextError) {
-      setError(errorMessage(nextError));
-      throw nextError;
-    } finally {
-      setLoading(false);
-    }
-  }, [normalizedMangaId, normalizedRegistryId, normalizedSourceId, store]);
-
-  useEffect(() => {
-    ignoreReloadError(reload);
-  }, [reload, revision]);
-
-  return { data, loading, error, reload };
 }
 
 export function useSourceSettings(

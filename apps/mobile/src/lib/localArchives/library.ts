@@ -1,5 +1,4 @@
 import type { AppLanguage, ChapterSummary } from "@/data/schema";
-import { LOCAL_ARCHIVE_REGISTRY_ID, LOCAL_ARCHIVE_SOURCE_ID } from "./policy";
 import { volumeIdForContentHash } from "./hash";
 
 /** Synced (metadata only): a volume is a chapter of its work. */
@@ -37,19 +36,6 @@ export const LOCAL_ARCHIVE_MISSING_FILE_LABELS: Record<AppLanguage, string> = {
   zh: "此设备尚未导入文件",
   ja: "このデバイスには読み込まれていません",
 };
-
-/** The source-link identity the existing sync/progress code already understands. */
-export function localArchiveSourceLink(workId: string) {
-  return {
-    registryId: LOCAL_ARCHIVE_REGISTRY_ID,
-    sourceId: LOCAL_ARCHIVE_SOURCE_ID,
-    sourceMangaId: workId,
-  };
-}
-
-export function isLocalArchiveSource(registryId: string): boolean {
-  return registryId === LOCAL_ARCHIVE_REGISTRY_ID;
-}
 
 export function volumeAvailability(
   volumeId: string,

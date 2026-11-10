@@ -76,12 +76,6 @@ function getMultiSelectValue(value?: FilterValue): MultiSelectValue {
   return { included: [], excluded: [] };
 }
 
-export function getMobileSourceFilterChipKind(
-  filter: Filter,
-): MobileSourceFilterChipKind {
-  return filter.type === FilterType.Check ? "toggle" : "menu";
-}
-
 /**
  * Sort direction rides the option label (matching the retired inline chips)
  * so the picker needs no extra control of its own.

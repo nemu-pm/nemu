@@ -29,14 +29,6 @@ export const MOBILE_WELCOME_STACK_BODY_BREAKPOINT = 600;
  */
 export const MOBILE_WELCOME_IOS_SHEET_TOP_PADDING = 18;
 
-/**
- * A source card is 12pt padding + 34pt of content + its selection border, so a
- * selected (1.5pt) row measures 61pt. Budgeting the selected height keeps the
- * list from scrolling by a hairline however many rows are checked.
- */
-export const MOBILE_WELCOME_SOURCE_ROW_HEIGHT = 61;
-export const MOBILE_WELCOME_SOURCE_ROW_GAP = 8;
-
 export function shouldScrollMobileWelcomeContent({
   platform,
   step,

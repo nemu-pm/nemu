@@ -301,27 +301,3 @@ export function useMobilePoseRenderProbe(label: string) {
   }, [changeId, label]);
 }
 
-/** A remount this soon after a layout-only pose change belongs to it (container re-measure is async). */
-const REMOUNT_AFTER_POSE_MS = 600;
-
-/**
- * Veils a surface's forced remount (e.g. a FlatList whose `numColumns`
- * changed) when it follows a layout-only pose change — the one case the
- * layout transitions cannot animate. Resizes are already veiled.
- */
-export function useMobilePoseRemountVeil(remountKey: string | number) {
-  const { changeId, kind, requestVeil } = useMobilePoseTransition();
-  const seenChangeRef = useRef(changeId);
-  const layoutChangeAtRef = useRef<number | null>(null);
-  const seenKeyRef = useRef(remountKey);
-  useLayoutEffect(() => {
-    if (seenChangeRef.current !== changeId) {
-      seenChangeRef.current = changeId;
-      layoutChangeAtRef.current = kind === "layout" ? Date.now() : null;
-    }
-    if (seenKeyRef.current === remountKey) return;
-    seenKeyRef.current = remountKey;
-    const at = layoutChangeAtRef.current;
-    if (at !== null && Date.now() - at <= REMOUNT_AFTER_POSE_MS) requestVeil("remount");
-  }, [changeId, kind, remountKey, requestVeil]);
-}
