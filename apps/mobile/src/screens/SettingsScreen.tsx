@@ -72,6 +72,9 @@ import {
 import { ReaderPluginManagementRow } from "@/components/ReaderPluginManagementRow";
 import { useMobileReaderPluginSignedInState } from "@/components/useMobileReaderPluginSignedInState";
 import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
+import { useMobileDownloadState } from "@/lib/downloads/mobileDownloads";
+import { getMobileDownloadedBytes } from "@/lib/downloads/mobileDownloadQueue";
+import { formatMobileDownloadBytes } from "@/lib/downloads/useMobileDownloadsPage";
 import {
   QuickActionSheet,
   type QuickAction,
@@ -1514,6 +1517,35 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
  * Sources page: where sources come from (directories) and whether installed
  * ones update themselves. Refreshing a directory never installs anything.
  */
+/** Data: the row that opens Settings > Downloads, with what the downloads take up. */
+function DownloadsSettingsRow({ strings, disabled }: { strings: MobileStrings; disabled: boolean }) {
+  const downloads = useMobileDownloadState();
+  const size = formatMobileDownloadBytes(getMobileDownloadedBytes(downloads), strings);
+  const open = () => router.push("/(tabs)/settings/downloads");
+  return mobileDesignExploreFlag ? (
+    <ExploreSettingsGroup
+      rows={[{
+        key: "downloads",
+        icon: "arrow-down-circle-outline",
+        title: strings.downloads.title,
+        accessibilityLabel: strings.downloads.title,
+        accessibilityHint: strings.downloads.localOnlyFooter,
+        detail: size,
+        disabled,
+        onPress: open,
+      }]}
+    />
+  ) : (
+    <SettingsMenuRow
+      icon="arrow-down-circle-outline"
+      title={strings.downloads.title}
+      subtitle={size}
+      disabled={disabled}
+      onPress={open}
+    />
+  );
+}
+
 function SourceUpdatesGroup({
   strings,
   disabled,
@@ -3765,6 +3797,7 @@ function SettingsScreenContent({
 
               {activeSection === "data" ? (
                 <>
+                  <DownloadsSettingsRow strings={strings} disabled={settingsActionBusy} />
                   <MobileStorageBreakdown
                     clearAllBusy={
                       pendingClearMode === "cache" ||
