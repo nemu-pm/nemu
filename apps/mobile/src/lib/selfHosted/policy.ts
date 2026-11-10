@@ -9,6 +9,11 @@ export type SelfHostedKind = (typeof SELF_HOSTED_KINDS)[number];
 /** The kinds the Add Source sheet offers a setup form for. */
 export const SELF_HOSTED_SETUP_KINDS: readonly SelfHostedKind[] = ["komga", "kavita", "suwayomi"];
 
+/** Kinds with API keys. Suwayomi has none: its login is a username and password. */
+export function selfHostedKindTakesApiKey(kind: SelfHostedKind): boolean {
+  return kind !== "suwayomi";
+}
+
 /** Each server's out-of-the-box port, shown in the address field's placeholder. */
 export const SELF_HOSTED_DEFAULT_PORTS: Readonly<Record<SelfHostedKind, number>> = {
   komga: 25600,
@@ -145,6 +150,26 @@ export function normalizeServerUrl(input: string): ServerUrlResult {
   }
   const path = url.pathname.replace(/\/+$/, "");
   return { ok: true, url: `${url.origin}${path}` };
+}
+
+/**
+ * Whether iOS refuses this address before a request leaves the device. The app
+ * allows plain http only for local networking (`NSAllowsLocalNetworking`): IP
+ * addresses, unqualified names and `.local` names. A plain-http domain name
+ * (dynamic DNS, a `.lan` name, Tailscale MagicDNS) fails App Transport Security
+ * at once, which looks like an unreachable server unless it is named.
+ */
+export function isBlockedByAppTransportSecurity(serverUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+  return host.includes(".") && !host.endsWith(".local");
 }
 
 export function isSelfHostedConfig(value: unknown): value is SelfHostedConfig {

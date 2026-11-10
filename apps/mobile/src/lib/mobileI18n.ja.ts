@@ -1261,6 +1261,7 @@ export const mobileStringsJa: MobileStrings = {
     apiKey: "APIキー",
     loginFooter:
       "ユーザー名とパスワード、またはAPIキーでサインインします。ログイン情報はこのデバイスにのみ保存されます。",
+    loginFooterPassword: "ユーザー名とパスワードでサインインします。ログイン情報はこのデバイスにのみ保存されます。",
     connecting: "接続中…",
     connectFailedTitle: "接続できません",
     errorAddressEmpty: "サーバーのアドレスを入力してください。",
@@ -1272,11 +1273,17 @@ export const mobileStringsJa: MobileStrings = {
       "localhostではこのデバイスから接続できません。ネットワーク上のサーバーのアドレスを使ってください。",
     errorUnreachable:
       "サーバーから応答がありません。アドレスと、このデバイスから接続できるかを確認してください。",
+    errorInsecureHttp:
+      "iOSでhttp://を使えるのは、192.168.1.20やnas.localのようなネットワーク内のアドレスだけです。サーバーのhttps://アドレスか、IPアドレスを使ってください。",
+    errorLoginRequired: "このサーバーにはログインが必要です。ユーザー名とパスワードを入力してください。",
     errorUnauthorized: "サーバーがこのログイン情報を受け付けませんでした。",
     errorForbidden: "このアカウントにはサーバーのAPIを使う権限がありません。",
     errorNotThisServer: "このアドレスは{{kind}}サーバーではないようです。",
     errorServer: "サーバーがエラーを返しました（{{status}}）。",
     errorUnsupported: "この種類のサーバーにはまだ対応していません。",
+    errorSuwayomiSimpleLogin:
+      "このSuwayomiサーバーはSimple Loginを使っています。これはブラウザでしか使えません。Suwayomiの設定で認証方式をUI LoginまたはBasic Authenticationにしてください。",
+    errorOutdated: "この{{kind}}のバージョンは古すぎます。サーバーを更新してからもう一度お試しください。",
     needsSignIn:
       "このサーバーのログイン情報がこのデバイスにありません。ソースの設定からサインインしてください。",
     reservedSourceId: "このソースはnemuの内蔵ソース用に予約された名前を使っています。",

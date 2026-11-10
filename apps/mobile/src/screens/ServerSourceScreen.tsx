@@ -26,7 +26,9 @@ export function ServerSourceScreen() {
   const login = [
     { label: strings.selfHosted.username, value: fields.username, placeholder: strings.selfHosted.username, onChange: form.setUsername, plain: true },
     { label: strings.selfHosted.password, value: fields.password, placeholder: strings.selfHosted.password, onChange: form.setPassword, secure: true, plain: true },
-    { label: strings.selfHosted.apiKey, value: fields.apiKey, placeholder: strings.selfHosted.apiKey, onChange: form.setApiKey, secure: true, plain: true },
+    ...(form.takesApiKey
+      ? [{ label: strings.selfHosted.apiKey, value: fields.apiKey, placeholder: strings.selfHosted.apiKey, onChange: form.setApiKey, secure: true, plain: true }]
+      : []),
   ];
 
   const renderGroup = (group: typeof rows) => (
@@ -67,7 +69,7 @@ export function ServerSourceScreen() {
         {renderGroup(rows)}
         {renderGroup(login)}
         <NemuText style={{ color: tokens.mutedForeground }}>
-          {form.saving ? strings.selfHosted.connecting : strings.selfHosted.loginFooter}
+          {form.saving ? strings.selfHosted.connecting : form.loginFooter}
         </NemuText>
       </ScrollView>
     </View>

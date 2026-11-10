@@ -1091,6 +1091,8 @@ export type MobileStrings = {
     password: string;
     apiKey: string;
     loginFooter: string;
+    /** The login footer of a server that has no API keys. */
+    loginFooterPassword: string;
     connecting: string;
     connectFailedTitle: string;
     errorAddressEmpty: string;
@@ -1099,6 +1101,10 @@ export type MobileStrings = {
     errorAddressCredentials: string;
     errorAddressLocal: string;
     errorUnreachable: string;
+    /** iOS refuses plain http to a domain name (App Transport Security). */
+    errorInsecureHttp: string;
+    /** The server wants a login and the form had none. */
+    errorLoginRequired: string;
     errorUnauthorized: string;
     errorForbidden: string;
     /** `{{kind}}` is the server software's name. */
@@ -1106,6 +1112,10 @@ export type MobileStrings = {
     /** `{{status}}` is the HTTP status. */
     errorServer: string;
     errorUnsupported: string;
+    /** A Suwayomi server set to Simple Login, which only a browser can use. */
+    errorSuwayomiSimpleLogin: string;
+    /** `{{kind}}` is the server software's name. */
+    errorOutdated: string;
     /** Shown instead of a source's content when its login is not on this device. */
     needsSignIn: string;
     reservedSourceId: string;

@@ -1,0 +1,1 @@
+{"errors":[{"message":"Exception while fetching data (/login) : Incorrect username or password.\r\n\r\njava.lang.Exception: Incorrect username or password.\n\tat suwayomi.tachidesk.graphql.mutations.UserMutation.login(UserMutation.kt:43)\n\tat java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)\n","path":["login"]}]}

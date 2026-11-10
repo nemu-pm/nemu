@@ -2,12 +2,19 @@ import { mobileNativeFetch } from "@/sources/mobileNativeHttp";
 
 export type SelfHostedErrorCode =
   | "unreachable"
+  /** The server wants a login and none was given. */
+  | "login-required"
+  /** The login given was refused. */
   | "unauthorized"
   | "forbidden"
   | "not-found"
   | "server"
   | "invalid-response"
-  | "unsupported";
+  | "unsupported"
+  /** The server is set to a login method the app cannot use (Suwayomi's Simple Login). */
+  | "unsupported-login"
+  /** The server is too old for the API the app speaks. */
+  | "outdated";
 
 /** A failure talking to a user's own server; `code` drives the localized message. */
 export class SelfHostedError extends Error {

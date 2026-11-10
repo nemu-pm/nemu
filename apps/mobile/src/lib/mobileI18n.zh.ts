@@ -1183,6 +1183,7 @@ export const mobileStringsZh: MobileStrings = {
     apiKey: "API 密钥",
     loginFooter:
       "使用用户名和密码，或 API 密钥登录。登录信息只保存在此设备上。",
+    loginFooterPassword: "使用用户名和密码登录。登录信息只保存在此设备上。",
     connecting: "正在连接…",
     connectFailedTitle: "无法连接",
     errorAddressEmpty: "请输入服务器地址。",
@@ -1191,11 +1192,17 @@ export const mobileStringsZh: MobileStrings = {
     errorAddressCredentials: "不要把用户名或密码写进地址，请填在下面的栏位里。",
     errorAddressLocal: "无法通过 localhost 访问。请使用服务器在局域网中的地址。",
     errorUnreachable: "服务器没有响应。请检查地址，并确认此设备能访问它。",
+    errorInsecureHttp:
+      "iOS 只允许用 http:// 连接本地网络中的地址，例如 192.168.1.20 或 nas.local。请改用服务器的 https:// 地址，或它的 IP 地址。",
+    errorLoginRequired: "这台服务器需要登录。请填写用户名和密码。",
     errorUnauthorized: "服务器不接受这个登录信息。",
     errorForbidden: "此账号无权使用服务器的 API。",
     errorNotThisServer: "这个地址看起来不是 {{kind}} 服务器。",
     errorServer: "服务器返回了错误（{{status}}）。",
     errorUnsupported: "暂不支持这种服务器。",
+    errorSuwayomiSimpleLogin:
+      "这台 Suwayomi 服务器使用 Simple Login 登录方式，只能在浏览器中使用。请在 Suwayomi 设置中把认证方式改为 UI Login 或 Basic Authentication。",
+    errorOutdated: "这个版本的 {{kind}} 太旧了。请更新服务器后再试。",
     needsSignIn: "此设备上没有这台服务器的登录信息。请在来源设置中登录。",
     reservedSourceId: "这个来源使用了 nemu 内置来源保留的名称。",
   },

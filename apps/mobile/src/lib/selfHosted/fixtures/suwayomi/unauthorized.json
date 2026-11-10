@@ -1,0 +1,1 @@
+{"errors":[{"message":"Exception while fetching data (/mangas) : Unauthorized\r\n\r\nsuwayomi.tachidesk.server.user.UnauthorizedException: Unauthorized\n\tat suwayomi.tachidesk.server.user.UserTypeKt.requireUser(UserType.kt:23)\n\tat suwayomi.tachidesk.graphql.directives.RequireAuthDirectiveWiring.onField$lambda$0(RequireAuthDirectiveWiring.kt:28)\n","path":["mangas"]}]}

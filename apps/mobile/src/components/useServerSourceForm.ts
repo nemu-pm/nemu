@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import { useMobileDataStore } from "@/data/mobileDataContext";
 import { emitMobileDataChanged } from "@/data/mobileDataEvents";
 import { useMobileLanguageSettings } from "@/data/mobileHooks";
@@ -7,6 +7,7 @@ import { mobileServerSourceFormBlocksDismiss } from "@/lib/mobileAddSourcesPages
 import { hapticConfirm, hapticError } from "@/lib/haptics";
 import { formatMobileString, getMobileStrings } from "@/lib/mobileI18n";
 import { testSelfHostedConnection } from "@/lib/selfHosted/connectionTest";
+import { isSelfHostedError } from "@/lib/selfHosted/http";
 import { selfHostedCookieScope } from "@/lib/selfHosted/executorSource";
 import {
   selfHostedErrorDiagnostic,
@@ -16,9 +17,11 @@ import {
 } from "@/lib/selfHosted/messages";
 import {
   SELF_HOSTED_DEFAULT_PORTS,
+  isBlockedByAppTransportSecurity,
   isSelfHostedKind,
   normalizeServerUrl,
   readSelfHostedCredentials,
+  selfHostedKindTakesApiKey,
   selfHostedSourceKey,
   type SelfHostedKind,
 } from "@/lib/selfHosted/policy";
@@ -94,7 +97,7 @@ export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }:
       return;
     }
     // A key replaces a username and password; typing both would be ambiguous.
-    const credentials = apiKey.trim()
+    const credentials = apiKey.trim() && selfHostedKindTakesApiKey(kind)
       ? { apiKey: apiKey.trim() }
       : username.trim() || password
         ? { username: username.trim(), password }
@@ -142,10 +145,15 @@ export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }:
       if (controller.signal.aborted) return;
       void hapticError();
       const diagnostic = selfHostedErrorDiagnostic(failure);
-      Alert.alert(
-        strings.selfHosted.connectFailedTitle,
-        [selfHostedErrorMessage(failure, strings, kind), diagnostic].filter(Boolean).join("\n\n"),
-      );
+      // iOS refused the plain-http address itself; the server was never asked.
+      const message =
+        Platform.OS === "ios" &&
+        isSelfHostedError(failure) &&
+        failure.code === "unreachable" &&
+        isBlockedByAppTransportSecurity(address.url)
+          ? strings.selfHosted.errorInsecureHttp
+          : selfHostedErrorMessage(failure, strings, kind);
+      Alert.alert(strings.selfHosted.connectFailedTitle, [message, diagnostic].filter(Boolean).join("\n\n"));
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       savingRef.current = false;
@@ -153,9 +161,12 @@ export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }:
     }
   }, [apiKey, appLanguage, editingId, kind, name, onSaved, password, server, store, strings, username]);
 
+  const takesApiKey = kind === null || selfHostedKindTakesApiKey(kind);
   return {
     strings,
     kind,
+    takesApiKey,
+    loginFooter: takesApiKey ? strings.selfHosted.loginFooter : strings.selfHosted.loginFooterPassword,
     kindName: kind ? selfHostedKindName(kind) : "",
     serverPlaceholder: formatMobileString(strings.selfHosted.serverAddressPlaceholder, {
       port: SELF_HOSTED_DEFAULT_PORTS[kind ?? "komga"],

@@ -113,4 +113,20 @@ context menu, Settings > Sources) opens the same form.
 
 ## Suwayomi
 
-Written against the server's GraphQL API (`/api/graphql`). Listings are the server's Library (manga marked in-library) and All; search filters by title; chapters come from the server's own chapter list (fetched from the source on first open); pages are `/api/v1/...` URLs fetched with the same Basic header. Auth is Basic (the server's BASIC_AUTH mode) or none; the JWT `UI_LOGIN` mode is not supported.
+Written against the server's GraphQL API (`/api/graphql`). Listings are the server's Library (manga marked in-library) and All; search filters by title; chapters come from the server's own chapter list (fetched from the source on first open); pages are the `/api/v1/...` URLs the server hands out. Suwayomi has no API keys, so its form asks for a username and password only.
+
+The server's `authMode` decides the login, and the app finds it out (the mode is not readable before signing in):
+
+| authMode       | API                                      | images                                   |
+| -------------- | ---------------------------------------- | ---------------------------------------- |
+| `none`         | no login                                 | no login                                 |
+| `basic_auth`   | HTTP Basic                               | HTTP Basic                               |
+| `ui_login`     | `login` mutation → JWT as a Bearer token | HTTP Basic with `opds=true` (see below)  |
+| `simple_login` | not supported: refused with its own message | —                                     |
+
+- `aboutServer` is public outside `basic_auth`, so the connection test also runs a query that needs a signed-in user. Without it a `ui_login` server passed the test with any login, or none, and every later query failed.
+- The JWT lives in memory only. It is short-lived (five minutes by default); the app signs in again a little before it expires, and once more when the server refuses it. No refresh token is stored.
+- Image caches are keyed by URL and headers, so images must not carry the rotating token. Under a login mode the server accepts Basic for page images, and since upstream #2482 (after v2.4.2366) for thumbnails, when the URL has `opds=true`; the executor adds it at fetch time. An older server's thumbnails get the Bearer token instead (found out once with a request for a thumbnail that does not exist: 401 before the auth check, 404 past it).
+- `simple_login` keeps a browser session cookie set on a redirect, and native networking deliberately drops cookies from redirect responses. The user is asked to switch the server to UI Login or Basic Authentication.
+
+Errors say which of these went wrong: no login given (`login-required`), login refused (`unauthorized`), Simple Login (`unsupported-login`), a schema without the queries (`outdated`).
