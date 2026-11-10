@@ -25,7 +25,6 @@ import {
   nemuFontWeight,
   spacing,
   useNemuTheme,
-  NemuNativeProgressBar,
   NemuPressable,
 } from "@/design-system";
 import { JapaneseLearningText as Text } from "./JapaneseLearningText";
@@ -59,8 +58,7 @@ import { getMobileJapaneseLearningEnginePreference } from "@/lib/mobileJapaneseL
 import { mobileJapaneseLearningSignInCopy } from "@/lib/mobileJapaneseLearningOcr";
 import { isMobileJapaneseLearningSignedIn } from "@/lib/mobileJapaneseLearningAuth";
 import { mobileJapaneseLearningAwaitsSignIn } from "@/lib/mobileJapaneseLearningAuthGate";
-import { describeMobileJapaneseLearningPackLoading } from "@/lib/mobileJapaneseLearningAnalysisPackState";
-import { useMobileJapaneseLearningAnalysisPackState } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
+import { useMobileJapaneseLearningAnalysisPackSelector } from "@/lib/mobileJapaneseLearningAnalysisPackStore";
 import {
   JAPANESE_LEARNING_SENTENCE_COLUMN_FRACTION,
   JAPANESE_LEARNING_SENTENCE_PANE_MAX_HEIGHT,
@@ -68,6 +66,7 @@ import {
   resolveJapaneseLearningColumnBubbleMaxHeight,
   resolveJapaneseLearningSentenceLayout,
 } from "@/lib/mobileJapaneseLearningSheetLayout";
+import { JapaneseLearningPackLoadingStatus } from "./JapaneseLearningPackLoadingStatus";
 import { JapaneseLearningSignInNotice } from "./JapaneseLearningSignInNotice";
 import { JapaneseLearningTokenDisplay } from "./JapaneseLearningTokenDisplay";
 import { JapaneseLearningTokenDetails } from "./JapaneseLearningTokenDetails";
@@ -167,11 +166,14 @@ export function JapaneseLearningSentenceDisplay({
   const colors = mobileJapaneseLearningSurfaceColors(scheme === "dark" ? "dark" : "light");
   // First on-device analysis: the dictionary pack downloads before the
   // sentence can be analyzed — show its progress instead of a silent spinner.
-  const packState = useMobileJapaneseLearningAnalysisPackState();
-  const packLoading =
-    grammarState.status === "loading"
-      ? describeMobileJapaneseLearningPackLoading(packState, strings)
-      : null;
+  // Only these flags are read here; the byte counts re-render
+  // `JapaneseLearningPackLoadingStatus` alone.
+  const packInstalling = useMobileJapaneseLearningAnalysisPackSelector(
+    (state) => state.kind === "installing",
+  );
+  const packFailed = useMobileJapaneseLearningAnalysisPackSelector(
+    (state) => state.kind === "failed",
+  );
   const tokenLayoutsRef = useRef<Array<JapaneseLearningTokenLayout | undefined>>([]);
   // Touch `locationX/Y` is relative to the touched child (a word's text), not
   // to the token row, so hit-testing uses page coordinates minus the row's
@@ -462,7 +464,7 @@ export function JapaneseLearningSentenceDisplay({
       >
         {mobileJapaneseLearningAnalysisErrorText({
           detail: grammarState.detail,
-          packFailed: packState.kind === "failed",
+          packFailed,
           preference: getMobileJapaneseLearningEnginePreference(),
           signedIn: isMobileJapaneseLearningSignedIn(),
           strings,
@@ -484,16 +486,8 @@ export function JapaneseLearningSentenceDisplay({
         </NemuPressable>
       ) : null}
     </View>
-  ) : grammarState.status === "loading" && packLoading ? (
-    <View accessibilityLiveRegion="polite" style={styles.packLoading}>
-      <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
-        {packLoading.label}
-      </Text>
-      <NemuNativeProgressBar
-        accessibilityLabel={strings.japaneseLearningDictionary.progressAccessibility}
-        value={packLoading.progress}
-      />
-    </View>
+  ) : grammarState.status === "loading" && packInstalling ? (
+    <JapaneseLearningPackLoadingStatus strings={strings} />
   ) : grammarState.status === "loading" ? (
     <View accessibilityLiveRegion="polite" style={styles.analyzing}>
       <Text style={[styles.analyzingText, { color: nemuColorWithAlpha(tokens.mutedForeground, 0.8) }]}>
@@ -997,13 +991,6 @@ const styles = StyleSheet.create({
   errorBlock: {
     alignItems: "flex-start",
     gap: 4,
-  },
-  packLoading: {
-    alignSelf: "stretch",
-    alignItems: "center",
-    gap: 10,
-    paddingTop: 12,
-    paddingHorizontal: 8,
   },
   // Web: `rounded-xl p-4 token-details-card`.
   multiSelectionCard: {
