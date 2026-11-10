@@ -917,6 +917,10 @@ export const mobileStringsJa: MobileStrings = {
     appearanceDescription: "言語、テーマ、メタデータ設定",
     feedbackSection: "触覚とヒント",
     feedbackSectionDescription: "振動と読了時のヒント",
+    privacySection: "プライバシー",
+    privacySectionDescription: "このデバイスから nemu に送る情報",
+    shareCrashReports: "クラッシュレポートを共有",
+    shareCrashReportsHint: "クラッシュ修正のための匿名レポート。読んでいる作品は含みません",
     readerDescriptionWithFeedback:
       "読み方向、スクロール、ページレイアウトと触覚",
     agent: "Nemu Agent",

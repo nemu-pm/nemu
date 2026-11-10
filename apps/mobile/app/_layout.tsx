@@ -69,6 +69,10 @@ import {
   waitForMobileLaunchSourceWork,
 } from "@/lib/mobileLaunchSourceWork";
 import { scheduleMobileIdleTask } from "@/lib/mobileIdleTask";
+import {
+  wrapMobileErrorBoundaryWithCrashReporting,
+  wrapMobileRootWithCrashReporting,
+} from "@/lib/mobileCrashReporting";
 import { endNativeBinaryCacheLaunchIndexDeferral } from "@/data/nativeCache";
 import {
   MOBILE_PERFORMANCE_MARKS,
@@ -97,9 +101,11 @@ markMobilePerformance(MOBILE_PERFORMANCE_MARKS.bootFontsReady, {
   status: Platform.OS === "web" ? "system-fallback" : "native-embedded",
 });
 
-export function ErrorBoundary(props: ErrorBoundaryProps) {
-  return <MobileErrorBoundaryScreen {...props} />;
-}
+export const ErrorBoundary = wrapMobileErrorBoundaryWithCrashReporting(
+  function RootErrorBoundary(props: ErrorBoundaryProps) {
+    return <MobileErrorBoundaryScreen {...props} />;
+  },
+);
 
 function ConfiguredBackgroundSyncRegistrar() {
   useMobileBackgroundSync();
@@ -268,7 +274,7 @@ function RootStack({
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [welcomeBlocksAccessibility, setWelcomeBlocksAccessibility] =
     useState(false);
 
@@ -315,3 +321,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+// Wrapped for crash reporting (touch breadcrumbs, React error capture) only
+// when it started with this launch.
+const RootLayoutWithCrashReporting = wrapMobileRootWithCrashReporting(RootLayout);
+export default RootLayoutWithCrashReporting;

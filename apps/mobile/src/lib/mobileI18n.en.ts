@@ -908,6 +908,10 @@ export const mobileStringsEn: MobileStrings = {
     appearanceDescription: "Language, theme, and metadata preferences",
     feedbackSection: "Haptics & Cues",
     feedbackSectionDescription: "Vibration and completion cues",
+    privacySection: "Privacy",
+    privacySectionDescription: "What this device sends to nemu",
+    shareCrashReports: "Share crash reports",
+    shareCrashReportsHint: "Anonymous reports that help fix crashes. Never what you read.",
     readerDescriptionWithFeedback:
       "Reading direction, scrolling, page layout, and haptics",
     agent: "Nemu Agent",

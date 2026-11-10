@@ -182,6 +182,10 @@ import {
 } from "@/lib/haptics";
 import { canRunMobileSwitchSelectionFeedback } from "@/lib/mobileAccessibility";
 import {
+  setMobileCrashReportsEnabled,
+  useMobileCrashReportsEnabled,
+} from "@/lib/mobileCrashReporting";
+import {
   formatMobileString,
   getMobileStrings,
   type MobileStrings,
@@ -1661,6 +1665,42 @@ function MobileFeedbackSettingsCard() {
           onToggle={(nextValue) => {
             void setHapticsFeedbackEnabled(nextValue);
           }}
+        />
+      </View>
+    </SettingsSurface>
+  );
+}
+
+/**
+ * Privacy choices for this device: today only "Share crash reports" (Sentry,
+ * on by default, scrubbed; see `mobileCrashReporting`). Device-local, not
+ * synced, and kept by "Clear all data".
+ */
+function MobilePrivacySettingsCard() {
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const crashReportsEnabled = useMobileCrashReportsEnabled();
+
+  return (
+    <SettingsSurface
+      style={styles.rowShell}
+      contentStyle={styles.dataManagementCard}
+    >
+      <SettingsGroupHeader
+        icon="shield-checkmark-outline"
+        title={strings.settings.privacySection}
+        description={strings.settings.privacySectionDescription}
+      />
+      <View
+        style={[styles.dataActions, mobileDesignExploreFlag ? [styles.exploreInnerRows, styles.exploreSwitchRows] : null]}
+        testID="PrivacySettingsCard"
+      >
+        <FeedbackSettingRow
+          first
+          underHeading
+          title={strings.settings.shareCrashReports}
+          subtitle={strings.settings.shareCrashReportsHint}
+          value={crashReportsEnabled}
+          onToggle={setMobileCrashReportsEnabled}
         />
       </View>
     </SettingsSurface>
@@ -3843,6 +3883,8 @@ function SettingsScreenContent({
                       />
                     </SettingsSurface>
                   )}
+
+                  <MobilePrivacySettingsCard />
 
                   <View
                     onLayout={(event) => {
