@@ -20,6 +20,7 @@ describe("privacy policy copy", () => {
       "ichiran.komi.to",
       "service.nemu.pm",
       "AniList",
+      "Sentry",
       "https://github.com/nemu-pm/nemu/issues",
     ]) {
       expect(text).toContain(name);
@@ -32,6 +33,9 @@ describe("privacy policy copy", () => {
     expect(text.toLowerCase()).not.toContain("operator");
     expect(text).toContain("does not store diagnostic records");
     expect(text).toContain("not stored by nemu");
+    // Crash reports are disclosed with their opt-out and what is removed.
+    expect(text).toContain("Share crash reports");
+    expect(text).toContain("IP addresses are not stored");
   });
 
   test("is English only; other locales fall back to it", () => {

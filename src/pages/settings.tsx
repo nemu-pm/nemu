@@ -47,6 +47,11 @@ import {
 import { isPluginEnabledForRuntime, usePluginRegistry } from "@/lib/plugins";
 import { hapticPress } from "@/lib/haptics";
 import { AgentStatusCard } from "@/components/agent-status-card";
+import {
+  crashReportingAvailable,
+  readCrashReportsEnabled,
+  setCrashReportsEnabled,
+} from "@/lib/crash-reporting";
 
 type OAuthProvider = "google" | "apple";
 
@@ -110,6 +115,7 @@ export function SettingsPage() {
   const [addSourceOpen, setAddSourceOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [crashReportsEnabled, setCrashReportsEnabledState] = useState(readCrashReportsEnabled);
   const [uninstalling, setUninstalling] = useState<string | null>(null);
   const [togglingSource, setTogglingSource] = useState<string | null>(null);
   // Source settings - separate open state from data so data persists during exit animation
@@ -572,6 +578,24 @@ export function SettingsPage() {
               {t("settings.clear")}
             </Button>
           </div>
+          {crashReportingAvailable && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">{t("settings.shareCrashReports")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t("settings.shareCrashReportsDescription")}
+                </p>
+              </div>
+              <Switch
+                checked={crashReportsEnabled}
+                aria-label={t("settings.shareCrashReports")}
+                onCheckedChange={(checked) => {
+                  setCrashReportsEnabled(checked);
+                  setCrashReportsEnabledState(checked);
+                }}
+              />
+            </div>
+          )}
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="font-medium">{t("settings.clearAllData")}</p>

@@ -309,6 +309,8 @@
     "dataManagement": "データ管理",
     "clearCache": "キャッシュをクリア",
     "clearCacheDescription": "ダウンロードしたソースファイルとキャッシュデータを削除します",
+    "shareCrashReports": "クラッシュレポートを共有",
+    "shareCrashReportsDescription": "クラッシュ修正のための匿名レポート。読んでいる作品は含みません",
     "clear": "クリア",
     "clearAllData": "すべてのデータをクリア",
     "clearAllDataDescription": "すべてをリセットして最初からやり直します",

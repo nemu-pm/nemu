@@ -314,6 +314,8 @@
     "dataManagement": "Data Management",
     "clearCache": "Clear Cache",
     "clearCacheDescription": "Remove downloaded source files and cached data",
+    "shareCrashReports": "Share crash reports",
+    "shareCrashReportsDescription": "Anonymous reports that help fix crashes. Never what you read.",
     "clear": "Clear",
     "clearAllData": "Clear All Data",
     "clearAllDataDescription": "Reset everything and start fresh",
@@ -740,7 +742,7 @@
   },
   "privacy": {
     "title": "Privacy Policy",
-    "updated": "Last updated: 2026-10-12",
+    "updated": "Last updated: 2026-11-11",
     "sections": [
       {
         "heading": "About nemu",
@@ -790,10 +792,11 @@
         ]
       },
       {
-        "heading": "Analytics, advertising and logs",
+        "heading": "Crash reports, analytics, advertising and logs",
         "body": [
-          "nemu has no analytics, crash-reporting, advertising or tracking software and does not track you across other apps or sites.",
-          "nemu does not store diagnostic records. Operational logs from our servers (Convex function logs, and the text-recognition service's logs) contain counts, durations and error types but not your messages, page text, titles or images, and are kept for 30 days. Our hosting providers may keep their own infrastructure records under their own schedules."
+          "nemu has no analytics, advertising or tracking software and does not track you across other apps or sites.",
+          "Crash reports: when the app or the website crashes or hits an error, it sends a report to Sentry, a crash-reporting service. A report contains the error and where in nemu's code it happened, the app version, the device model, operating system and language, and the last steps inside nemu before the error. Before a report leaves your device, nemu removes the web addresses of the sources, servers and images you use, the titles and chapters you open, search terms, sign-in tokens, cookies and email addresses. Reports carry no account or user ID and are not linked to you, and IP addresses are not stored. A small share of sessions also sends performance timings, such as how long a screen took to load. You can turn this off in Settings (Share crash reports). Sentry keeps reports for up to 90 days.",
+          "Apart from crash reports, nemu does not store diagnostic records. Operational logs from our servers (Convex function logs, and the text-recognition service's logs) contain counts, durations and error types but not your messages, page text, titles or images, and are kept for 30 days. Our hosting providers may keep their own infrastructure records under their own schedules."
         ]
       },
       {
@@ -806,7 +809,7 @@
       {
         "heading": "Your choices and rights",
         "body": [
-          "You can use nemu without an account, sign out at any time, stop using AI features, and delete your account. Depending on where you live you may have rights to access, correct or delete your data; contact us as described above."
+          "You can use nemu without an account, sign out at any time, stop using AI features, turn off crash reports, and delete your account. Depending on where you live you may have rights to access, correct or delete your data; contact us as described above."
         ]
       },
       {
@@ -818,7 +821,7 @@
       {
         "heading": "Service providers and transfers",
         "body": [
-          "We use Convex (database and server functions), Cloudflare (file storage and relay), vast.ai (GPU server for text recognition), Google and Apple (sign-in), Anthropic, Google, ElevenLabs and Vercel (AI processing). Providers may process data outside your country."
+          "We use Convex (database and server functions), Cloudflare (file storage and relay), vast.ai (GPU server for text recognition), Google and Apple (sign-in), Anthropic, Google, ElevenLabs and Vercel (AI processing), and Sentry (crash reports). Providers may process data outside your country."
         ]
       },
       {
