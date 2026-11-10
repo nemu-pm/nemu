@@ -1535,6 +1535,21 @@ public class NemuAidokuModule: Module {
       )
     }
 
+    // Downloaded chapters live under Documents (never purged) but can be
+    // fetched again, so they stay out of iCloud and device backups. Only a
+    // file:// directory the app created is accepted.
+    Function("excludeFromBackup") { (uri: String) -> Bool in
+      guard var url = URL(string: uri), url.isFileURL else { return false }
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      do {
+        try url.setResourceValues(values)
+        return true
+      } catch {
+        return false
+      }
+    }
+
     AsyncFunction("resetMobileSourceProfileAuthState") { (promise: Promise) in
       // All source sessions use isolated jars. Clear them directly so neither
       // scoped nor stateless authentication can cross a profile transition.

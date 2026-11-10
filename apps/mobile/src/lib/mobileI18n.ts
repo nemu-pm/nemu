@@ -1278,6 +1278,68 @@ export type MobileStrings = {
     seeAll: string;
     sourceOptions: string;
   };
+  /** Chapter downloads for offline reading (离线下载). */
+  downloads: {
+    title: string;
+    /** The title page's download menu (its bar button). */
+    menu: string;
+    downloadChapter: string;
+    /** `{{count}}` unread chapters from where the reader is. */
+    downloadNext: string;
+    downloadUnread: string;
+    downloadAll: string;
+    selectChapters: string;
+    selectionTitle: string;
+    selectionEmpty: string;
+    selectAll: string;
+    deselectAll: string;
+    /** The selection bar's confirming action. */
+    downloadSelected: string;
+    removeDownload: string;
+    /** Every downloaded chapter of this title. */
+    removeDownloads: string;
+    cancelDownload: string;
+    /** Every queued chapter of this title. */
+    cancelDownloads: string;
+    retryDownload: string;
+    manageDownloads: string;
+    /** VoiceOver, after the chapter's own label. */
+    statusQueued: string;
+    statusDownloading: string;
+    statusPaused: string;
+    statusFailed: string;
+    statusDownloaded: string;
+    queuedOne: string;
+    queuedOther: string;
+    nothingToDownload: string;
+    storageUsed: string;
+    storageUnitGigabytes: string;
+    wifiOnly: string;
+    wifiOnlyFooter: string;
+    queueSection: string;
+    pauseAll: string;
+    resumeAll: string;
+    cancelAll: string;
+    pause: string;
+    resume: string;
+    waitingForNetwork: string;
+    waitingForWifi: string;
+    jobQueued: string;
+    jobDownloading: string;
+    jobPaused: string;
+    jobFailed: string;
+    jobProgress: string;
+    downloadedSection: string;
+    chapterCountOne: string;
+    chapterCountOther: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    deleteAll: string;
+    deleteAllTitle: string;
+    deleteAllMessage: string;
+    delete: string;
+    localOnlyFooter: string;
+  };
 };
 
 type MobileLocaleCatalogs = Record<AppLanguage, MobileStrings>;

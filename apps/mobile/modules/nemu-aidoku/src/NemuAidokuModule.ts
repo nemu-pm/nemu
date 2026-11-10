@@ -52,6 +52,11 @@ declare class NemuAidokuModule extends NativeModule<NemuAidokuEventsMap> {
    * native builds keep nothing.
    */
   retainReaderDecodedImage?(uri: string): void;
+  /**
+   * iOS: marks a `file://` directory excluded from iCloud and device backups.
+   * Optional: Android disables backup app-wide and older binaries lack it.
+   */
+  excludeFromBackup?(uri: string): boolean;
   resetMobileSourceProfileAuthState(): Promise<void>;
   /**
    * Clears the cookies of exactly one source, for a `clear_cookies_on_log_out`

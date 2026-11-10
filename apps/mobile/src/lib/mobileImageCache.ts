@@ -154,6 +154,16 @@ export function isProcessedMobileReaderPageStored(_uri: string): boolean {
   return false;
 }
 
+/** Chapter downloads exist on native only (see the native twin). */
+export async function downloadMobileReaderPageToTemporaryFile(
+  _request: { uri: string; headers?: Record<string, string> },
+  _signal?: AbortSignal,
+): Promise<{ fileUri: string }> {
+  void _request;
+  void _signal;
+  throw new Error("Chapter downloads need the native app.");
+}
+
 export async function prefetchCachedMobileImages(
   sources: Array<MobileImageCacheSource | null | undefined>,
 ): Promise<void> {

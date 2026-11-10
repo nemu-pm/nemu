@@ -20,6 +20,7 @@ import {
 import { makeMobileImageCacheStorageKey } from "./mobileImageCacheKey";
 import { registerMobileAppLocalImageUri } from "./mobileAppLocalImageUris";
 import { parseNativeSegmentedImageCacheManifest } from "@/data/nativeSegmentedImageCache";
+import { downloadMobileNativeHttpFile, releaseMobileNativeHttpFile } from "@/sources/mobileNativeHttpFile";
 import { hasMobileUserAgentHeader } from "@/sources/mobileAidokuUserAgent";
 import {
   isMobileHotlinkGuardedImageUrl,
@@ -476,6 +477,39 @@ export function isProcessedMobileReaderPageStored(uri: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A reader page fetched for a chapter download: the same request the page
+ * cache makes (scheme upgrade, hotlink-safe headers, default User-Agent,
+ * self-hosted cookie scope, byte cap, native SSRF policy), streamed into an
+ * app-owned temporary file the caller then moves into the download. No
+ * dimension policy and so never segmented: the saved page is painted from its
+ * file, as an imported archive's pages are.
+ */
+export async function downloadMobileReaderPageToTemporaryFile(
+  request: { uri: string; headers?: Record<string, string> },
+  signal?: AbortSignal,
+): Promise<{ fileUri: string }> {
+  const source = normalizeMobileImageCacheSource({ ...request, cacheKind: "page" as const });
+  if (!source.uri || !isCacheableMobileImageUri(source.uri)) {
+    throw new Error("Only HTTP(S) page images can be downloaded.");
+  }
+  const result = await downloadMobileNativeHttpFile(
+    {
+      url: source.uri,
+      headers: imageDownloadHeaders(source.headers) ?? {},
+      cookieScope: selfHostedImageCookieScope(source.uri),
+      maxResponseBytes: MOBILE_REMOTE_IMAGE_MAX_BYTES,
+      requireHttps: false,
+    },
+    signal,
+  );
+  if (result.kind !== "file") {
+    for (const segment of result.imageSegments) releaseMobileNativeHttpFile(segment.fileUri);
+    throw new Error("The page download returned an unexpected segmented image.");
+  }
+  return { fileUri: result.fileUri };
 }
 
 export async function prefetchCachedMobileImages(

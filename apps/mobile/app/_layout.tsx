@@ -17,6 +17,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { MobileErrorBoundaryScreen } from "@/components/MobileErrorBoundaryScreen";
+import { MobileDownloadsBridge } from "@/components/MobileDownloadsBridge";
 import { MobileFeedbackSettingsBridge } from "@/components/MobileFeedbackSettingsBridge";
 import { MobileLocalNetworkAllowanceBridge } from "@/components/MobileLocalNetworkAllowanceBridge";
 import { MobileJapaneseLearningQaDemoLauncher } from "@/components/MobileJapaneseLearningQaDemoLauncher";
@@ -280,6 +281,7 @@ export default function RootLayout() {
               <MobileSyncBridge />
               <MobileFeedbackSettingsBridge />
               <MobileLocalNetworkAllowanceBridge />
+              <MobileDownloadsBridge />
               <MobileBackgroundSyncRegistrar />
               <NemuThemeProvider>
                 <MobileWindowLayoutProvider>

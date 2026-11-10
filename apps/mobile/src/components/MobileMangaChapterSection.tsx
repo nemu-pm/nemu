@@ -21,6 +21,7 @@ import type { MobileChapterRow } from "@/lib/mobileChapterRows";
 import { getMobileChapterSectionRhythm } from "@/lib/mobileMangaDetailPaneLayout";
 import { mobileStateEntering, mobileStateExiting } from "@/lib/mobilePoseLayoutAnimations";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import type { MobileDownloadMangaRef } from "@/lib/downloads/mobileDownloadTypes";
 import { formatMobileLanguageDisplayName } from "@/lib/mobileLanguageSettings";
 
 type MobileMangaChapterSectionHeaderProps = {
@@ -55,6 +56,8 @@ type MobileMangaChapterRowProps = {
   strings: MobileStrings;
   onPressChapter: (chapter: ChapterSummary) => void;
   showLanguage?: boolean;
+  downloadManga?: MobileDownloadMangaRef | null;
+  onLongPressChapter?: (chapter: ChapterSummary) => void;
 };
 
 type MobileMangaChapterToolbarProps = {
@@ -310,6 +313,8 @@ export const MobileMangaChapterRow = memo(function MobileMangaChapterRow({
   strings,
   onPressChapter,
   showLanguage = false,
+  downloadManga = null,
+  onLongPressChapter,
 }: MobileMangaChapterRowProps) {
   const rhythm = useChapterSectionRhythm();
   return (
@@ -323,6 +328,8 @@ export const MobileMangaChapterRow = memo(function MobileMangaChapterRow({
         strings={strings}
         onPressChapter={onPressChapter}
         showLanguage={showLanguage}
+        downloadManga={downloadManga}
+        onLongPressChapter={onLongPressChapter}
       />
     </View>
   );

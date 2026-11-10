@@ -21,6 +21,10 @@ import { formatMobileString, type MobileStrings } from "@/lib/mobileI18n";
 import { formatMobileDetailDate } from "@/lib/mobileMangaDetailInfo";
 import { useMobileReaderResumePosition } from "@/lib/useMobileReaderResumePosition";
 import { ContextMenuView, type ContextMenuItem } from "../../../modules/nemu-window-layout";
+import { MobileChapterDownloadGlyph } from "@/components/MobileChapterDownloadGlyph";
+import { formatMobileChapterDownloadStatus } from "@/lib/downloads/mobileDownloadStatusLabel";
+import { useMobileChapterDownloadStatus } from "@/lib/downloads/mobileDownloads";
+import type { MobileDownloadMangaRef } from "@/lib/downloads/mobileDownloadTypes";
 
 const GLYPH = 18;
 const STROKE = 1.75;
@@ -35,7 +39,12 @@ export type MobileExploreChapterAction =
   | "markUnread"
   | "markPreviousRead"
   | "share"
-  | "copyLink";
+  | "copyLink"
+  | "download"
+  | "cancelDownload"
+  | "removeDownload"
+  /** Selection mode: the row was tapped. */
+  | "toggleSelected";
 
 const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
   "start",
@@ -44,6 +53,9 @@ const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
   "markPreviousRead",
   "share",
   "copyLink",
+  "download",
+  "cancelDownload",
+  "removeDownload",
 ];
 
 /**
@@ -57,7 +69,10 @@ const MENU_ACTIONS: readonly MobileExploreChapterAction[] = [
  * with its tag, then the source's title and group with the reader's page. Long press: the system context menu with
  * Read / Continue and Read from the beginning (both open the reader), and
  * with `moreActions` Mark as Read (or as Unread once started), Mark Previous
- * as Read, Share and Copy Link.
+ * as Read, Share and Copy Link. With `downloadManga` the row also shows the
+ * chapter's download state on its trailing edge, and the menu downloads,
+ * cancels or removes it. While the list is selecting chapters (`selected` is
+ * a boolean) a tap toggles the row and the menu is off.
  */
 export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   chapter,
@@ -70,6 +85,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   strings,
   onAction,
   moreActions = false,
+  downloadManga = null,
+  selected = null,
 }: {
   chapter: ChapterSummary;
   progress: LocalChapterProgress | undefined;
@@ -88,6 +105,10 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
    * (where the page handles them; the link only when the source gives one).
    */
   moreActions?: boolean;
+  /** The work the chapter belongs to, when its chapters can be downloaded. */
+  downloadManga?: MobileDownloadMangaRef | null;
+  /** Selection mode: whether this row is selected; null when not selecting. */
+  selected?: boolean | null;
 }) {
   const { tokens } = useNemuTheme();
   const { appLanguage } = useMobileLanguageSettings();
@@ -99,6 +120,8 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   const accent = selectedInk ?? chapterPalette?.ink ?? tokens.primary;
   const selection = chapterPalette?.primary ?? tokens.primarySoft;
   const presentation = getMobileChapterPresentation(chapter, progress);
+  const download = useMobileChapterDownloadStatus(downloadManga, chapter.id);
+  const selecting = selected !== null;
   // "Page X of Y" and the ring: the page the reader opens at (this device's
   // own spot when it holds one, else the synced high-water page).
   const localResume = useMobileReaderResumePosition(progress?.id);
@@ -108,7 +131,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
   // The source's title only when it adds something (not "第132话 (10p)" under
   // "Chapter 132"), and the group only when it is not the list's own.
   const subtitle = getMobileExploreChapterRowSubtitle(chapter, commonGroup);
-  const disabled = presentation.isLocked || busy;
+  const disabled = presentation.isLocked || (busy && !selecting);
   const status = formatMobileChapterProgressStatus(accessory, strings);
   const detail = getMobileExploreChapterRowDetail({
     subtitle,
@@ -122,12 +145,25 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
     upNext ? strings.designExplore.chapterUpNext : null,
     presentation.isNew ? strings.common.new : null,
     detail.text === status ? null : status,
+    formatMobileChapterDownloadStatus(download, strings),
   ]
     .filter(Boolean)
     .join(". ");
   const items = useMemo<ContextMenuItem[]>(() => {
-    if (presentation.isLocked) return [];
+    if (presentation.isLocked || selecting) return [];
     const started = presentation.isInProgress || presentation.isRead;
+    const downloadItems: ContextMenuItem[] = !downloadManga
+      ? []
+      : download.kind === "downloaded"
+        ? [{ id: "removeDownload", title: strings.downloads.removeDownload, systemImage: "trash", destructive: true }]
+        : download.kind === "none"
+          ? [{ id: "download", title: strings.downloads.downloadChapter, systemImage: "arrow.down.circle" }]
+          : download.kind === "failed"
+            ? [
+                { id: "download", title: strings.downloads.retryDownload, systemImage: "arrow.clockwise" },
+                { id: "cancelDownload", title: strings.downloads.cancelDownload, systemImage: "xmark.circle" },
+              ]
+            : [{ id: "cancelDownload", title: strings.downloads.cancelDownload, systemImage: "xmark.circle" }];
     return [
       {
         id: "read",
@@ -158,9 +194,23 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               : []),
           ]
         : []),
+      ...downloadItems,
     ];
-  }, [moreActions, presentation.isInProgress, presentation.isLocked, presentation.isRead, shareable, strings]);
-  const press = useCallback(() => onAction(chapter, "read"), [chapter, onAction]);
+  }, [
+    download.kind,
+    downloadManga,
+    moreActions,
+    presentation.isInProgress,
+    presentation.isLocked,
+    presentation.isRead,
+    selecting,
+    shareable,
+    strings,
+  ]);
+  const press = useCallback(
+    () => onAction(chapter, selecting ? "toggleSelected" : "read"),
+    [chapter, onAction, selecting],
+  );
   const menu = useCallback(
     (id: string) => {
       const action = MENU_ACTIONS.find((candidate) => candidate === id);
@@ -178,7 +228,7 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityHint={strings.designExplore.chapterRowHint}
-          accessibilityState={{ disabled }}
+          accessibilityState={selecting ? { disabled, selected: selected === true } : { disabled }}
           disabled={disabled}
           pressProfile="row"
           pressHighlight
@@ -191,7 +241,9 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
           ]}
         >
           <View style={styles.glyph}>
-            {presentation.isLocked ? (
+            {selecting && !presentation.isLocked ? (
+              <MobileChapterSelectionGlyph selected={selected === true} color={accent} ring={secondary} />
+            ) : presentation.isLocked ? (
               <MobileChapterLockGlyph color={glyphColor} />
             ) : presentation.isRead ? (
               <MobileChapterCheckGlyph color={glyphColor} />
@@ -239,8 +291,13 @@ export const MobileExploreChapterRow = memo(function MobileExploreChapterRow({
               </View>
             ) : null}
             </View>
-            <View style={styles.trail} pointerEvents="none">
-              {!disabled ? (
+            <View style={[styles.trail, download.kind !== "none" ? styles.trailWithDownload : null]} pointerEvents="none">
+              <MobileChapterDownloadGlyph
+                status={download}
+                color={download.kind === "downloaded" ? nemuColorWithAlpha(secondary, 0.85) : accent}
+                dangerColor={tokens.danger}
+              />
+              {!disabled && !selecting ? (
                 <Ionicons name="chevron-forward" size={15} color={nemuColorWithAlpha(secondary, 0.7)} />
               ) : null}
              </View>
@@ -282,6 +339,22 @@ export function MobileChapterCheckGlyph({ color }: { color: string }) {
   return (
     <Svg width={GLYPH} height={GLYPH} viewBox="0 0 18 18">
       <Path d="M4.5 9.4 7.6 12.4 13.5 5.8" stroke={color} strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </Svg>
+  );
+}
+
+/** Selection mode's leading mark: an empty ring, or a filled disc with a check. */
+export function MobileChapterSelectionGlyph({ selected, color, ring }: { selected: boolean; color: string; ring: string }) {
+  return (
+    <Svg width={GLYPH + 2} height={GLYPH + 2} viewBox="0 0 20 20">
+      {selected ? (
+        <>
+          <Circle cx={10} cy={10} r={9} fill={color} />
+          <Path d="M5.8 10.2 8.6 13l5.6-6" stroke="#fff" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </>
+      ) : (
+        <Circle cx={10} cy={10} r={8.6} stroke={nemuColorWithAlpha(ring, 0.6)} strokeWidth={1.3} fill="none" />
+      )}
     </Svg>
   );
 }
@@ -349,10 +422,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   trail: {
-    width: 32,
+    minWidth: 32,
     height: 40,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+  },
+  trailWithDownload: {
+    paddingLeft: 8,
   },
   titleLine: {
     flexDirection: "row",

@@ -11,6 +11,7 @@ import { clearMobileDualReaderDhashCache } from "@/lib/mobileDualReaderDhashCach
 import { clearMobileSourceDetailCache } from "@/lib/mobileSourceDetailCache";
 import { clearMobileSourceListingCache } from "@/lib/mobileSourceListingCache";
 import { clearMobileWelcomeDeviceCompleted } from "./mobileWelcomeDeviceCompletion";
+import { mobileDownloads } from "@/lib/downloads/mobileDownloads";
 
 /**
  * Clear every non-sandbox Nemu data backend used by the mobile app. Each step
@@ -34,6 +35,9 @@ export async function clearAllMobileDeviceData(
       clearCachedRegistryIndex,
       clearMobileSourceDetailCache,
       clearMobileSourceListingCache,
+      // Downloaded chapters are user data, not a cache: only a full wipe
+      // removes them ("Clear Cache" never does).
+      () => mobileDownloads.clearDevice(),
       // A full wipe returns the device to first-run onboarding.
       clearMobileWelcomeDeviceCompleted,
     ]);
