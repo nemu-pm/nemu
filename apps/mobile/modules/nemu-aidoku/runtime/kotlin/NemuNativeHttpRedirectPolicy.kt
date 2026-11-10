@@ -2,7 +2,16 @@ package pm.nemu.mobile.aidoku
 
 import java.io.IOException
 import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import okhttp3.Response
+
+/**
+ * With [follow] false a 3xx response is the response: the scope's cookie
+ * interceptor keeps its Set-Cookie like any other's. For a login that sets its
+ * session cookie on the redirect (Suwayomi's Simple Login).
+ */
+internal fun OkHttpClient.Builder.followingRedirects(follow: Boolean): OkHttpClient.Builder =
+  followRedirects(follow).followSslRedirects(follow)
 
 /** Marker copied by OkHttp onto follow-up requests for credential-bearing calls. */
 internal object NemuHttpsOnlyRequestPolicy {

@@ -1110,8 +1110,6 @@ export type MobileStrings = {
     /** `{{status}}` is the HTTP status. */
     errorServer: string;
     errorUnsupported: string;
-    /** A Suwayomi server set to Simple Login, which only a browser can use. */
-    errorSuwayomiSimpleLogin: string;
     /** `{{kind}}` is the server software's name. */
     errorOutdated: string;
     /** Shown instead of a source's content when its login is not on this device. */

@@ -113,6 +113,10 @@ class NemuAidokuHttpRequest : Record {
 
   @Field
   var requireHttps: Boolean = false
+
+  /** false: a 3xx response is returned instead of followed. */
+  @Field
+  var followRedirects: Boolean = true
 }
 
 @OptimizedRecord
@@ -956,6 +960,7 @@ class NemuAidokuModule : Module() {
         // callTimeout one synchronous host call can consume their sum while the
         // React Native JS thread is unable to process timers or navigation.
         .callTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
+        .followingRedirects(request.followRedirects)
       val scopedCookieJar = cookieScope?.let(nativeHttpCookieStore::get)
       // Apply redirect policy even without a jar so a stateless request cannot
       // forward a caller-authored Cookie header to another origin.

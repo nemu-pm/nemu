@@ -106,14 +106,22 @@ const makeJwt = (claims: Record<string, unknown>) => `${base64Url({ alg: "HS256"
  * A Suwayomi server in one `authMode`, answering with responses recorded from
  * real servers (v2.4.2366, v2.4.2490): `aboutServer` is public except under
  * BASIC_AUTH, every other field wants a signed-in user, the `login` mutation
- * issues a JWT, and only UI_LOGIN accepts it.
+ * issues a JWT, and only UI_LOGIN accepts it. SIMPLE_LOGIN signs in through
+ * `/login.html`: the GET starts a session and puts a CSRF token in the form,
+ * the POST answers 303 and rotates the session id. The transport stands in
+ * for native's per-server cookie jar: it holds the one session cookie, and
+ * only a response that is not followed past keeps it.
  */
 function suwayomiServer(
   mode: "none" | "basic_auth" | "simple_login" | "ui_login",
-  { tokenSeconds = 300, thumbnailFallback = true } = {},
+  { tokenSeconds = 300, thumbnailFallback = true, formPassword = LOGIN.password } = {},
 ) {
   const seen: SelfHostedRequest[] = [];
   const issued = new Map<string, number>();
+  /** Server side: session id -> CSRF token and whether it is signed in. */
+  const sessions = new Map<string, { csrf: string; signedIn: boolean }>();
+  /** Client side: the session cookie the jar holds. */
+  let cookie: string | undefined;
   let serial = 0;
   const reply = (body: string, status = 200) => ({ status, headers: {}, body });
   const transport: SelfHostedTransport = async (request) => {
@@ -121,11 +129,34 @@ function suwayomiServer(
     const auth = request.headers?.Authorization;
     const basicValid = auth === BASIC;
     if (mode === "basic_auth" && !basicValid) return reply("Unauthorized", 401);
+    const session = cookie === undefined ? undefined : sessions.get(cookie);
+    const sessionValid = mode === "simple_login" && session?.signedIn === true;
+    if (request.url === `${SERVER}/login.html`) {
+      if (request.method === "POST") {
+        const form = request.form ?? {};
+        if (!session || form["csrf-token"] !== session.csrf) return reply("<form>expired</form>");
+        if (form.user !== LOGIN.username || form.pass !== formPassword) return reply("<form>failed</form>");
+        // `changeSessionId()`: the cookie on the redirect is the signed-in one.
+        sessions.delete(cookie!);
+        const rotated = `s${(serial += 1)}`;
+        sessions.set(rotated, { csrf: "", signedIn: true });
+        // A followed redirect would drop it, as native networking does.
+        if (request.followRedirects === false) cookie = rotated;
+        return { status: 303, headers: { location: "/" }, body: "" };
+      }
+      const csrf = `csrf${(serial += 1)}`;
+      if (session) session.csrf = csrf;
+      else {
+        cookie = `s${(serial += 1)}`;
+        sessions.set(cookie, { csrf, signedIn: false });
+      }
+      return reply(`<form method="POST"><input type="hidden" name="csrf-token" value="${csrf}"/></form>`);
+    }
     if (request.url.includes("/api/v1/")) {
       const fallback = /[?&]opds=true/.test(request.url) && basicValid && (thumbnailFallback || !request.url.includes("/thumbnail"));
       const expiry = auth?.startsWith("Bearer ") ? issued.get(auth.slice(7)) : undefined;
       const bearer = mode === "ui_login" && expiry !== undefined && Date.now() < expiry;
-      const allowed = mode === "none" || mode === "basic_auth" || fallback || bearer;
+      const allowed = mode === "none" || mode === "basic_auth" || fallback || bearer || sessionValid;
       return reply("", allowed ? 404 : 401);
     }
     const { query, variables } = request.json as { query: string; variables: { u?: string; p?: string } };
@@ -143,14 +174,23 @@ function suwayomiServer(
     if (query.includes("aboutServer")) return reply(fixture("about.json"));
     const expiry = auth?.startsWith("Bearer ") ? issued.get(auth.slice(7)) : undefined;
     const signedIn =
-      mode === "none" || mode === "basic_auth" || (mode === "ui_login" && expiry !== undefined && Date.now() < expiry);
+      mode === "none" ||
+      mode === "basic_auth" ||
+      (mode === "ui_login" && expiry !== undefined && Date.now() < expiry) ||
+      sessionValid;
     if (!signedIn) return reply(fixture("unauthorized.json"));
     if (query.includes("totalCount")) return reply('{"data":{"mangas":{"totalCount":1}}}');
     return reply(fixture("library.json"));
   };
   const graphql = () => seen.filter((r) => r.url.endsWith("/api/graphql"));
   const logins = () => graphql().filter((r) => (r.json as { query: string }).query.includes("login(")).length;
-  return { transport, seen, graphql, logins, forget: () => issued.clear() };
+  const formLogins = () => seen.filter((r) => r.url.endsWith("/login.html") && r.method === "POST").length;
+  /** A server restart: tokens and sessions are gone. */
+  const forget = () => {
+    issued.clear();
+    sessions.clear();
+  };
+  return { transport, seen, graphql, logins, formLogins, forget };
 }
 
 describe("suwayomi auth modes", () => {
@@ -251,13 +291,73 @@ describe("suwayomi auth modes", () => {
     expect(server.logins()).toBe(1);
   });
 
-  test("Simple Login is reported as unsupported, not as a wrong login", async () => {
-    await expect(connect(suwayomiServer("simple_login"), LOGIN).testConnection()).rejects.toMatchObject({
-      code: "unsupported-login",
+  test("Simple Login: signs in through the login form and keeps its session", async () => {
+    const server = suwayomiServer("simple_login");
+    const backend = connect(server, LOGIN);
+    await expect(backend.testConnection()).resolves.toEqual({ version: "v2.4.2366" });
+    // Basic refused, then a token issued but ignored, then the form.
+    expect(server.logins()).toBe(1);
+    expect(server.formLogins()).toBe(1);
+    const [form, post] = server.seen.filter((r) => r.url.endsWith("/login.html"));
+    expect(form).toMatchObject({ url: `${SERVER}/login.html`, followRedirects: false });
+    expect(post).toMatchObject({
+      method: "POST",
+      followRedirects: false,
+      form: { user: LOGIN.username, pass: LOGIN.password, "csrf-token": expect.stringMatching(/^csrf/) },
     });
+    // The form carries the login, never a header.
+    expect(post?.headers?.Authorization).toBeUndefined();
+    const result = await backend.getMangaListForListing({ id: "library", name: "Library" }, 1);
+    expect(result.entries.map((entry) => entry.title)).toEqual(["Gamma"]);
+    await backend.search("gam", 1, []);
+    expect(server.formLogins()).toBe(1);
+    // The session is the cookie: API requests carry no credential header.
+    expect(server.graphql().at(-1)?.headers).toEqual({});
+  });
+
+  test("Simple Login: a wrong login is refused, by the token login or by the form", async () => {
     await expect(
       connect(suwayomiServer("simple_login"), { ...LOGIN, password: "nope" }).testConnection(),
     ).rejects.toMatchObject({ code: "unauthorized" });
+    // The form compares with the server's settings, which can differ from its user table.
+    await expect(
+      connect(suwayomiServer("simple_login", { formPassword: "other" }), LOGIN).testConnection(),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+    await expect(connect(suwayomiServer("simple_login")).testConnection()).rejects.toMatchObject({
+      code: "login-required",
+    });
+  });
+
+  test("Simple Login: signs in again once when the session has expired", async () => {
+    const server = suwayomiServer("simple_login");
+    const backend = connect(server, LOGIN);
+    await backend.testConnection();
+    server.forget();
+    await expect(backend.search(null, 1, [])).resolves.toMatchObject({ entries: [expect.objectContaining({ title: "Gamma" })] });
+    expect(server.formLogins()).toBe(2);
+    expect(server.logins()).toBe(1);
+  });
+
+  test("Simple Login: requests that find out about it together sign in once", async () => {
+    const server = suwayomiServer("simple_login");
+    const backend = connect(server, LOGIN);
+    await Promise.all([backend.search("a", 1, []), backend.search("b", 1, []), backend.search("c", 1, [])]);
+    expect(server.formLogins()).toBe(1);
+    expect(server.logins()).toBe(1);
+  });
+
+  test("Simple Login: images keep the stable Basic login, which the session also covers", async () => {
+    for (const thumbnailFallback of [true, false]) {
+      const server = suwayomiServer("simple_login", { thumbnailFallback });
+      const backend = connect(server, LOGIN);
+      const page = await backend.imageRequest(`${SERVER}/api/v1/manga/1/chapter/1/page/0`);
+      expect(page).toEqual({ url: `${SERVER}/api/v1/manga/1/chapter/1/page/0?opds=true`, headers: { Authorization: BASIC } });
+      // A server without upstream #2482 lets the thumbnail through on the session cookie.
+      expect(await backend.imageRequest(`${SERVER}/api/v1/manga/1/thumbnail`)).toEqual({
+        url: `${SERVER}/api/v1/manga/1/thumbnail?opds=true`,
+        headers: { Authorization: BASIC },
+      });
+    }
   });
 
   test("a schema without the queries means an outdated server", async () => {
@@ -271,10 +371,10 @@ describe("suwayomi auth modes", () => {
 
   test("each failure has its own sentence", () => {
     const strings = getMobileStrings("en");
-    const codes: SelfHostedErrorCode[] = ["login-required", "unauthorized", "unsupported-login", "outdated", "unreachable"];
+    const codes: SelfHostedErrorCode[] = ["login-required", "unauthorized", "outdated", "unreachable"];
     const sentences = codes.map((code) => selfHostedErrorMessage(new SelfHostedError(code), strings, "suwayomi"));
     expect(new Set(sentences).size).toBe(codes.length);
-    expect(sentences[3]).toContain("Suwayomi");
+    expect(sentences[2]).toContain("Suwayomi");
   });
 
   test("reads a token's expiry", () => {

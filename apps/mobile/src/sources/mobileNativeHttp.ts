@@ -30,6 +30,8 @@ export type MobileNativeFetchInit = RequestInit & {
    * share that source's cookie jar and receive its scoped local-network grant.
    */
   cookieScope?: string;
+  /** false: return a 3xx response instead of following it. */
+  followRedirects?: boolean;
 };
 
 function headersToRecord(headers: Headers): Record<string, string> {
@@ -83,6 +85,7 @@ export async function mobileNativeFetch(
     responseMode = "auto",
     maxResponseBytes = MOBILE_NATIVE_HTTP_DEFAULT_MAX_RESPONSE_BYTES,
     requireHttps = false,
+    followRedirects = true,
     ...requestInit
   } = init;
   if (requireHttps && new URL(input).protocol !== "https:") {
@@ -99,7 +102,7 @@ export async function mobileNativeFetch(
       // Browsers do not expose every cross-origin redirect target for us to
       // revalidate. Refuse redirects entirely in this non-native fallback when
       // the caller requests the stronger contract.
-      redirect: requireHttps ? "error" : requestInit.redirect,
+      redirect: requireHttps ? "error" : followRedirects ? requestInit.redirect : "manual",
     });
     const contentLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {

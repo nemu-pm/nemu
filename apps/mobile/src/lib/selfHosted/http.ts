@@ -11,8 +11,6 @@ export type SelfHostedErrorCode =
   | "server"
   | "invalid-response"
   | "unsupported"
-  /** The server is set to a login method the app cannot use (Suwayomi's Simple Login). */
-  | "unsupported-login"
   /** The server is too old for the API the app speaks. */
   | "outdated";
 
@@ -38,6 +36,14 @@ export type SelfHostedRequest = {
   headers?: Record<string, string>;
   /** Serialised JSON body. */
   json?: unknown;
+  /** URL-encoded form body (a browser login form). */
+  form?: Record<string, string>;
+  /**
+   * false: a redirect is returned, not followed. Its cookies are kept in the
+   * source's own cookie scope, so a session cookie set on a login redirect
+   * comes back on this server's later requests.
+   */
+  followRedirects?: false;
   signal?: AbortSignal;
 };
 
@@ -57,17 +63,24 @@ export type SelfHostedTransport = (request: SelfHostedRequest) => Promise<SelfHo
  */
 export function createNativeTransport(cookieScope: string): SelfHostedTransport {
   return async (request) => {
+    const body =
+      request.json !== undefined
+        ? { type: "application/json", text: JSON.stringify(request.json) }
+        : request.form
+          ? { type: "application/x-www-form-urlencoded", text: encodeForm(request.form) }
+          : null;
     try {
       const response = await mobileNativeFetch(request.url, {
         method: request.method ?? "GET",
         headers: {
           Accept: "application/json",
-          ...(request.json === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(body ? { "Content-Type": body.type } : {}),
           ...request.headers,
         },
-        ...(request.json === undefined ? {} : { body: JSON.stringify(request.json) }),
+        ...(body ? { body: body.text } : {}),
         responseMode: "text",
         cookieScope,
+        ...(request.followRedirects === false ? { followRedirects: false } : {}),
         signal: request.signal,
       });
       return { status: response.status, headers: response.headers, body: response.body };
@@ -76,6 +89,12 @@ export function createNativeTransport(cookieScope: string): SelfHostedTransport 
       throw new SelfHostedError("unreachable", error instanceof Error ? error.message : String(error));
     }
   };
+}
+
+export function encodeForm(fields: Record<string, string>): string {
+  return Object.entries(fields)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
 }
 
 export function errorForStatus(status: number): SelfHostedError | null {

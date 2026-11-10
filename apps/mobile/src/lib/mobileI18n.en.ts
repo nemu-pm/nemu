@@ -1266,8 +1266,6 @@ export const mobileStringsEn: MobileStrings = {
     errorNotThisServer: "That address doesn't look like a {{kind}} server.",
     errorServer: "The server returned an error ({{status}}).",
     errorUnsupported: "This kind of server isn't supported yet.",
-    errorSuwayomiSimpleLogin:
-      "This Suwayomi server uses Simple Login, which only works in a browser. In Suwayomi's settings, set the authentication mode to UI Login or Basic Authentication.",
     errorOutdated: "This version of {{kind}} is too old. Update the server and try again.",
     needsSignIn:
       "This server's login isn't on this device. Open the source's settings to sign in.",

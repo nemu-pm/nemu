@@ -15,20 +15,27 @@ import type { SelfHostedCredentials } from "./policy";
  *   short-lived JWT (five minutes by default) sent as a Bearer token. It is
  *   kept in memory only and replaced by signing in again shortly before it
  *   expires, or once when the server rejects it.
- * - SIMPLE_LOGIN: a browser session cookie set by a redirecting form post,
- *   which native networking does not keep. Reported as unsupported.
+ * - SIMPLE_LOGIN: the web login form (`/login.html`) sets a session cookie on
+ *   its 303 redirect. That one request does not follow redirects, so native
+ *   networking keeps the cookie in this server's own cookie scope (in memory,
+ *   sent to this host only) for the API requests after it. Signed in again
+ *   once when the session has expired (30 minutes idle by default).
  *
  * The mode is not readable before signing in, so it is found out: Basic first
  * (it is what BASIC_AUTH wants and the other modes ignore), then the `login`
- * mutation when the API answers Unauthorized. `aboutServer` needs no login
- * outside BASIC_AUTH, so the connection test also runs a query that does.
+ * mutation when the API answers Unauthorized, then the login form when a token
+ * the server just issued is ignored (SIMPLE_LOGIN issues tokens but only
+ * honours its session). `aboutServer` needs no login outside BASIC_AUTH, so
+ * the connection test also runs a query that does.
  *
  * Images (`/api/v1/...`) take Basic too. Under a login mode the server accepts
  * it only with `opds=true`, which is added at fetch time; a stable header keeps
  * the image caches (keyed by URL and headers) valid across sign-ins. Page
  * images have that fallback in every release with UI_LOGIN; thumbnails only
  * since upstream #2482 (after v2.4.2366), so an older server gets the current
- * Bearer token for thumbnails instead.
+ * Bearer token for thumbnails instead. Under SIMPLE_LOGIN image requests also
+ * carry the session cookie (same cookie scope), which lets an older server's
+ * thumbnails through.
  */
 
 const PAGE_SIZE = 30;
@@ -70,6 +77,8 @@ const AUTH_PROBE = "{mangas(first:1,condition:{inLibrary:true}){totalCount}}";
 const LOGIN = "mutation($u:String!,$p:String!){login(input:{username:$u,password:$p}){accessToken}}";
 /** Sign in again this long before a token's own expiry (at most a quarter of its lifetime). */
 const TOKEN_EXPIRY_MARGIN_MS = 30_000;
+/** The web login form, relative to the server address (which carries any subpath). */
+const LOGIN_FORM_PATH = "/login.html";
 
 type GqlError = { message?: string; extensions?: { classification?: string } };
 type GqlBody<T> = { data?: T | null; errors?: GqlError[] };
@@ -110,6 +119,16 @@ function withOpdsFlag(url: string): string {
 
 const isThumbnailUrl = (url: string) => /\/api\/v1\/manga\/\d+\/thumbnail(?:[?#]|$)/.test(url);
 
+/** The login form's CSRF token (the server binds it to the session cookie it set with the form). */
+function formCsrfToken(html: string): string | undefined {
+  const input = html.match(/<input\b[^>]*\bname="csrf-token"[^>]*>/i)?.[0];
+  return input?.match(/\bvalue="([^"]*)"/i)?.[1];
+}
+
+type AuthMode = "basic" | "token" | "session";
+/** A sign-in: the headers it adds (none for a session, whose cookie native keeps). */
+type Credential = { mode: AuthMode; serial: number; headers: Record<string, string>; renewAt: number };
+
 export type SuwayomiBackendOptions = {
   server: string;
   credentials: SelfHostedCredentials;
@@ -131,12 +150,17 @@ export function createSuwayomiBackend(options: SuwayomiBackendOptions): SelfHost
   const absolute = (path: string | null | undefined) =>
     path ? (/^https?:\/\//i.test(path) ? path : buildUrl(server, path)) : undefined;
 
-  /** "basic" until the API refuses it; then "login" (UI_LOGIN, a Bearer token). */
-  let mode: "basic" | "login" = "basic";
+  /**
+   * "basic" until the API refuses it; then "token" (UI_LOGIN, a Bearer token);
+   * then "session" (SIMPLE_LOGIN, a cookie) if the server ignores its tokens.
+   */
+  let mode: AuthMode = "basic";
   /** Whether a request has gone through with the current mode. */
   let confirmed = false;
   let detection: Promise<void> | null = null;
-  let session: Promise<{ token: string; renewAt: number }> | null = null;
+  /** The current sign-in; `serial` tells a refused one from a newer one. */
+  let signedIn: Promise<Credential> | null = null;
+  let serial = 0;
   let thumbnailsTakeBasic: Promise<boolean> | null = null;
 
   async function post<T>(
@@ -161,7 +185,7 @@ export function createSuwayomiBackend(options: SuwayomiBackendOptions): SelfHost
     return parseJson<GqlBody<T>>(response);
   }
 
-  async function signIn(signal?: AbortSignal): Promise<{ token: string; renewAt: number }> {
+  async function signInWithToken(signal?: AbortSignal): Promise<Omit<Credential, "mode" | "serial">> {
     const body = await post<{ login?: { accessToken?: string } }>(
       LOGIN,
       { u: credentials.username, p: credentials.password },
@@ -177,53 +201,108 @@ export function createSuwayomiBackend(options: SuwayomiBackendOptions): SelfHost
     const now = Date.now();
     const expiry = jwtExpiry(token);
     const renewAt = expiry === null ? Infinity : expiry - Math.min(TOKEN_EXPIRY_MARGIN_MS, (expiry - now) / 4);
-    return { token, renewAt };
+    return { headers: { Authorization: `Bearer ${token}` }, renewAt };
   }
 
-  async function accessToken(fresh: boolean, signal?: AbortSignal): Promise<string> {
-    if (!fresh && session) {
-      const current = await session.catch(() => null);
-      if (current && Date.now() < current.renewAt) return current.token;
-    }
-    const next = signIn(signal);
-    session = next;
-    next.catch(() => {
-      if (session === next) session = null;
+  /**
+   * The web login form: GET it for the session cookie and CSRF token, POST
+   * the login without following the redirect. Success is a 303 that sets the
+   * signed-in session cookie; a refusal is the form again (200).
+   */
+  async function signInWithSession(signal?: AbortSignal): Promise<Omit<Credential, "mode" | "serial">> {
+    const url = buildUrl(server, LOGIN_FORM_PATH);
+    const accept = { Accept: "text/html" };
+    const form = await transport({ url, headers: accept, followRedirects: false, signal });
+    const formFailure = errorForStatus(form.status);
+    if (formFailure) throw formFailure;
+    const csrf = formCsrfToken(form.body);
+    const response = await transport({
+      url,
+      method: "POST",
+      headers: accept,
+      form: { user: credentials.username ?? "", pass: credentials.password ?? "", ...(csrf ? { "csrf-token": csrf } : {}) },
+      followRedirects: false,
+      signal,
     });
-    return (await next).token;
+    if (response.status >= 300 && response.status < 400) return { headers: {}, renewAt: Infinity };
+    if (response.status === 200) throw new SelfHostedError("unauthorized", "The login was refused.");
+    throw errorForStatus(response.status) ?? new SelfHostedError("invalid-response", `HTTP ${response.status}`, response.status);
+  }
+
+  /**
+   * The current sign-in for `mode`, or a new one when there is none, it is
+   * about to expire, or it is the one the server just refused (`refused`).
+   * Requests that find out together share one sign-in.
+   */
+  async function credential(refused: number | null, signal?: AbortSignal): Promise<Credential> {
+    const wanted = mode;
+    // Another request may start a sign-in while this one waits: then wait for that one.
+    while (signedIn) {
+      const pending = signedIn;
+      const current = await pending.catch(() => null);
+      if (current && current.mode === wanted && current.serial !== refused && Date.now() < current.renewAt) {
+        return current;
+      }
+      if (signedIn === pending) break;
+    }
+    const id = ++serial;
+    const next = (wanted === "session" ? signInWithSession(signal) : signInWithToken(signal)).then(
+      (signIn): Credential => ({ ...signIn, mode: wanted, serial: id }),
+    );
+    signedIn = next;
+    next.catch(() => {
+      if (signedIn === next) signedIn = null;
+    });
+    return next;
   }
 
   async function gql<T>(query: string, variables: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
-    /** Set when the server refused a token: only then is a fresh one needed. */
-    let tokenRefused = false;
-    for (let attempt = 0; ; attempt += 1) {
-      const bearer = mode === "login";
-      const headers = bearer ? { Authorization: `Bearer ${await accessToken(tokenRefused, signal)}` } : basic;
-      const body = await post<T>(query, variables, headers, signal);
+    /** Sign-ins issued after this, during this request, are fresh. */
+    const startSerial = serial;
+    /** The sign-in the server refused, so that a new one is made. */
+    let refused: number | null = null;
+    // basic, token, token renewed, session, session renewed.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const used = mode;
+      const signIn: Credential | null = used === "basic" ? null : await credential(refused, signal);
+      const body = await post<T>(query, variables, signIn ? signIn.headers : basic, signal);
       const errors = body.errors ?? [];
       if (errors.length === 0 && body.data) {
-        confirmed = true;
+        if (mode === used) confirmed = true;
         return body.data;
       }
       if (isUnauthorized(errors)) {
         if (!hasLogin) throw new SelfHostedError("login-required", "The server wants a login.");
-        if (attempt === 0) {
-          // Basic refused: the server is in a login mode. Or the token expired.
-          if (bearer) tokenRefused = true;
-          else confirmed = false;
-          mode = "login";
+        if (!signIn) {
+          // Basic refused: the server is in a login mode.
+          if (mode === "basic") {
+            mode = "token";
+            confirmed = false;
+          }
           continue;
         }
-        // A token the server just issued is ignored only under SIMPLE_LOGIN,
-        // which authenticates with a browser session cookie instead.
-        throw confirmed
-          ? new SelfHostedError("unauthorized", "The server refused the login.")
-          : new SelfHostedError("unsupported-login", "The server uses Simple Login.");
+        if (signIn.serial <= startSerial) {
+          // An older sign-in: it expired or the server restarted. Sign in again.
+          refused = signIn.serial;
+          continue;
+        }
+        if (signIn.mode === "token") {
+          // A token the server just issued is ignored only under SIMPLE_LOGIN,
+          // which authenticates with its session cookie instead.
+          if (mode === "token") {
+            mode = "session";
+            confirmed = false;
+          }
+          refused = null;
+          continue;
+        }
+        throw new SelfHostedError("unauthorized", "The server refused the login.");
       }
       if (isForbidden(errors)) throw new SelfHostedError("forbidden", firstLine(errors[0]?.message));
       if (isSchemaMismatch(errors)) throw new SelfHostedError("outdated", firstLine(errors[0]?.message));
       throw new SelfHostedError("invalid-response", firstLine(errors[0]?.message) || "No data in the response.");
     }
+    throw new SelfHostedError("unauthorized", "The server refused the login.");
   }
 
   /** Settles the auth mode once, before an image request needs to know it. */
@@ -364,13 +443,14 @@ export function createSuwayomiBackend(options: SuwayomiBackendOptions): SelfHost
       await detectMode().catch(() => undefined);
       if (mode === "basic") return { url, headers: { ...basic } };
       if (isThumbnailUrl(url) && !(await thumbnailFallback().catch(() => false))) {
-        return { url, headers: { Authorization: `Bearer ${await accessToken(false)}` } };
+        // The current sign-in: a Bearer token (a session adds no header, its cookie rides along).
+        return { url, headers: { ...(await credential(null)).headers } };
       }
       return { url: withOpdsFlag(url), headers: { ...basic } };
     },
     isServerUrl: (url) => url === server || url.startsWith(`${server}/`),
     dispose() {
-      session = null;
+      signedIn = null;
       detection = null;
       thumbnailsTakeBasic = null;
     },

@@ -70,6 +70,8 @@ export type MobileNativeFetchInit = RequestInit & {
    * share that source's cookie jar and receive its scoped local-network grant.
    */
   cookieScope?: string;
+  /** false: return a 3xx response instead of following it. */
+  followRedirects?: boolean;
 };
 
 function normalizeHeaders(
@@ -206,6 +208,7 @@ export async function mobileNativeFetch(
     maxResponseBytes,
     requireHttps: init.requireHttps === true,
     ...(init.cookieScope ? { cookieScope: init.cookieScope } : {}),
+    ...(init.followRedirects === false ? { followRedirects: false } : {}),
   };
   // Idempotent requests are retried inside (cold-start egress failures,
   // backgrounding); caller aborts and deadline cancellations always win.

@@ -1198,8 +1198,6 @@ export const mobileStringsZh: MobileStrings = {
     errorNotThisServer: "这个地址看起来不是 {{kind}} 服务器。",
     errorServer: "服务器返回了错误（{{status}}）。",
     errorUnsupported: "暂不支持这种服务器。",
-    errorSuwayomiSimpleLogin:
-      "这台 Suwayomi 服务器使用 Simple Login 登录方式，只能在浏览器中使用。请在 Suwayomi 设置中把认证方式改为 UI Login 或 Basic Authentication。",
     errorOutdated: "这个版本的 {{kind}} 太旧了。请更新服务器后再试。",
     needsSignIn: "此设备上没有这台服务器的登录信息。请在来源设置中登录。",
     reservedSourceId: "这个来源使用了 nemu 内置来源保留的名称。",

@@ -1279,8 +1279,6 @@ export const mobileStringsJa: MobileStrings = {
     errorNotThisServer: "このアドレスは{{kind}}サーバーではないようです。",
     errorServer: "サーバーがエラーを返しました（{{status}}）。",
     errorUnsupported: "この種類のサーバーにはまだ対応していません。",
-    errorSuwayomiSimpleLogin:
-      "このSuwayomiサーバーはSimple Loginを使っています。これはブラウザでしか使えません。Suwayomiの設定で認証方式をUI LoginまたはBasic Authenticationにしてください。",
     errorOutdated: "この{{kind}}のバージョンは古すぎます。サーバーを更新してからもう一度お試しください。",
     needsSignIn:
       "このサーバーのログイン情報がこのデバイスにありません。ソースの設定からサインインしてください。",

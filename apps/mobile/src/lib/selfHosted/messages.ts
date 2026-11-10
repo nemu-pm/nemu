@@ -54,8 +54,6 @@ export function selfHostedErrorMessage(error: unknown, strings: MobileStrings, k
       return formatMobileString(text.errorServer, { status: String(error.status ?? "") });
     case "unsupported":
       return text.errorUnsupported;
-    case "unsupported-login":
-      return text.errorSuwayomiSimpleLogin;
     case "outdated":
       return formatMobileString(text.errorOutdated, { kind: KIND_NAMES[kind] });
     case "unreachable":
