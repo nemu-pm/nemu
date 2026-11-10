@@ -227,6 +227,20 @@ export class MobileDownloadManager {
     }
   }
 
+  /**
+   * "Clear All Data": every profile's downloads leave the device and the
+   * queue empties. The active profile keeps its (now empty) state file.
+   */
+  async clearDevice(): Promise<void> {
+    this.cancel(null);
+    await Promise.allSettled([...this.settling]);
+    this.update(createMobileDownloadState());
+    for (const name of this.files.list("")) {
+      await this.files.remove(name).catch(() => undefined);
+    }
+    await this.flush();
+  }
+
   setWifiOnly(wifiOnly: boolean): void {
     if (this.state.wifiOnly === wifiOnly) return;
     this.update({ ...this.state, wifiOnly });

@@ -2,10 +2,9 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import NemuAidokuModule from "../../../modules/nemu-aidoku/src/NemuAidokuModule";
 import { MOBILE_DOWNLOADS_DIRECTORY_NAME } from "./mobileDownloadPaths";
-import type { MobileDownloadFiles } from "./mobileDownloadFiles";
+import type { MobileDownloadFiles } from "./mobileDownloadFilesMemory";
 
-export type { MobileDownloadFiles } from "./mobileDownloadFiles";
-export { createMemoryMobileDownloadFiles } from "./mobileDownloadFiles";
+export type { MobileDownloadFiles } from "./mobileDownloadFilesMemory";
 
 function root(): Directory {
   return new Directory(Paths.document, MOBILE_DOWNLOADS_DIRECTORY_NAME);

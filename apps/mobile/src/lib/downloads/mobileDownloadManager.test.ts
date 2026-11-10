@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ChapterSummary } from "@/data/schema";
 import type { MobileReaderPage } from "@/sources/mobileSourcePages";
-import { createMemoryMobileDownloadFiles } from "./mobileDownloadFiles";
+import { createMemoryMobileDownloadFiles } from "./mobileDownloadFilesMemory";
 import { MobileDownloadManager, type MobileDownloadSourceAccess } from "./mobileDownloadManager";
 import {
   MOBILE_DOWNLOADS_STATE_FILE,
@@ -293,6 +293,18 @@ describe("download manager", () => {
     await manager.deleteManga(mobileDownloadMangaKey(manga));
     expect(Object.values(manager.getState().chapters).map((item) => item.chapter.id)).toEqual(["x1"]);
     await manager.deleteAll();
+    expect(manager.getState().chapters).toEqual({});
+    expect([...files.files.keys()].filter((path) => !path.endsWith(MOBILE_DOWNLOADS_STATE_FILE))).toEqual([]);
+  });
+
+  test("Clear All Data removes every profile's downloads", async () => {
+    const { manager, files } = await ready();
+    manager.enqueue([request("c1")]);
+    await flush();
+    await manager.switchProfileScope("account-b");
+    await manager.switchProfileScope("local");
+    expect(Object.keys(manager.getState().chapters)).toHaveLength(1);
+    await manager.clearDevice();
     expect(manager.getState().chapters).toEqual({});
     expect([...files.files.keys()].filter((path) => !path.endsWith(MOBILE_DOWNLOADS_STATE_FILE))).toEqual([]);
   });
