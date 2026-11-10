@@ -41,6 +41,8 @@ export function selfHostedErrorMessage(error: unknown, strings: MobileStrings, k
   const text = strings.selfHosted;
   if (!isSelfHostedError(error)) return text.errorUnreachable;
   switch (error.code) {
+    case "login-required":
+      return text.errorLoginRequired;
     case "unauthorized":
       return text.errorUnauthorized;
     case "forbidden":
@@ -52,6 +54,8 @@ export function selfHostedErrorMessage(error: unknown, strings: MobileStrings, k
       return formatMobileString(text.errorServer, { status: String(error.status ?? "") });
     case "unsupported":
       return text.errorUnsupported;
+    case "outdated":
+      return formatMobileString(text.errorOutdated, { kind: KIND_NAMES[kind] });
     case "unreachable":
       return text.errorUnreachable;
   }

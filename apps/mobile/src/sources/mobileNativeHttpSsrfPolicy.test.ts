@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -412,6 +412,38 @@ describe("native HTTP SSRF policy", () => {
     expect(ios).toContain("var requireHttps: Bool = false");
     expect(ios).toContain("requireHttps: request.requireHttps");
     expect(iosPolicy).toContain('url?.scheme?.lowercased() == "https"');
+  });
+
+  test("not following redirects is opt-in, and only the self-hosted login opts in", () => {
+    const android = read(
+      "android/src/main/java/pm/nemu/mobile/aidoku/NemuAidokuModule.kt",
+    );
+    const ios = read("ios/NemuAidokuModule.swift");
+
+    expect(android).toContain("var followRedirects: Boolean = true");
+    expect(android).toContain(".followingRedirects(request.followRedirects)");
+    expect(ios).toContain("var followRedirects: Bool = true");
+    expect(ios).toMatch(
+      /if !request\.followRedirects \{\s*NemuNativeHttpRedirectPolicy\.markNotFollowingRedirects/,
+    );
+    // Checked before any other redirect handling.
+    expect(ios).toMatch(
+      /willPerformHTTPRedirection[\s\S]{0,400}?guard NemuNativeHttpRedirectPolicy\.followsRedirects\(task\.originalRequest\) else \{\s*completionHandler\(nil\)/,
+    );
+
+    const appRoot = path.join(moduleRoot, "../../src");
+    const optedIn = (readdirSync(appRoot, { recursive: true }) as string[])
+      .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+      .filter((file) =>
+        /followRedirects(: false|\?: false)/.test(readFileSync(path.join(appRoot, file), "utf8")),
+      )
+      .sort();
+    // The Suwayomi login, the self-hosted transport and native fetch forwarding it.
+    expect(optedIn).toEqual([
+      "lib/selfHosted/http.ts",
+      "lib/selfHosted/suwayomi.ts",
+      "sources/mobileNativeHttp.native.ts",
+    ]);
   });
 
   test("runs the Swift native policy executables when testing on macOS", () => {

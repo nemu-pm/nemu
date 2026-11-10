@@ -80,6 +80,23 @@ While a server is being added its address has no row yet; the connection test
 creates a throwaway scope covering exactly that address and revokes it when the
 test ends (`connectionTest.ts`).
 
+### Plain http
+
+A home server is usually plain http, and users reach it by whatever name they
+have: an IP address, `nas.local`, `nas.lan`, a dynamic-DNS or Tailscale
+MagicDNS name. iOS App Transport Security therefore allows plain http to any
+host (`NSAllowsArbitraryLoads`), the iOS counterpart of Android's network
+security config, which already permits cleartext. Both pin nemu's own hosts
+(`nemu.pm`, `convex.cloud`, `convex.site`, subdomains included) to HTTPS.
+
+The ATS dictionary is written whole by `plugins/with-app-transport-security.cjs`
+during prebuild. It must not contain `NSAllowsLocalNetworking`,
+`NSAllowsArbitraryLoadsInWebContent` or `NSAllowsArbitraryLoadsForMedia`: on
+iOS 10 and later any of them makes iOS ignore `NSAllowsArbitraryLoads`, and
+plain http to a domain name is refused again. Source traffic is still confined
+by the native SSRF policy above; source image URLs are still upgraded to https
+unless they are a self-hosted server's own.
+
 ## Sync across devices
 
 The row syncs, the login does not. A second device receives the source with its
@@ -113,4 +130,22 @@ context menu, Settings > Sources) opens the same form.
 
 ## Suwayomi
 
-Written against the server's GraphQL API (`/api/graphql`). Listings are the server's Library (manga marked in-library) and All; search filters by title; chapters come from the server's own chapter list (fetched from the source on first open); pages are `/api/v1/...` URLs fetched with the same Basic header. Auth is Basic (the server's BASIC_AUTH mode) or none; the JWT `UI_LOGIN` mode is not supported.
+Written against the server's GraphQL API (`/api/graphql`). Listings are the server's Library (manga marked in-library) and All; search filters by title; chapters come from the server's own chapter list (fetched from the source on first open); pages are the `/api/v1/...` URLs the server hands out. Suwayomi has no API keys, so its form asks for a username and password only.
+
+The server's `authMode` decides the login, and the app finds it out (the mode is not readable before signing in):
+
+| authMode       | API                                      | images                                   |
+| -------------- | ---------------------------------------- | ---------------------------------------- |
+| `none`         | no login                                 | no login                                 |
+| `basic_auth`   | HTTP Basic                               | HTTP Basic                               |
+| `ui_login`     | `login` mutation → JWT as a Bearer token | HTTP Basic with `opds=true` (see below)  |
+| `simple_login` | login form → session cookie (see below)  | HTTP Basic with `opds=true`              |
+
+- `aboutServer` is public outside `basic_auth`, so the connection test also runs a query that needs a signed-in user. Without it a `ui_login` server passed the test with any login, or none, and every later query failed.
+- The JWT lives in memory only. It is short-lived (five minutes by default); the app signs in again a little before it expires, and once more when the server refuses it. No refresh token is stored.
+- Image caches are keyed by URL and headers, so images must not carry the rotating token. Under a login mode the server accepts Basic for page images, and since upstream #2482 (after v2.4.2366) for thumbnails, when the URL has `opds=true`; the executor adds it at fetch time. An older server's thumbnails get the Bearer token instead (found out once with a request for a thumbnail that does not exist: 401 before the auth check, 404 past it).
+- `simple_login` is found out when the server ignores a token it has just issued (it issues them, but only honours its session). The app then signs in like the browser does: `GET /login.html` (starts a session, carries a CSRF token in the form), `POST /login.html` with `user`, `pass` and the token. The server answers `303` and rotates the session id on that response, so this one request is sent with `followRedirects: false`: the 303 is the response, and its `Set-Cookie` is kept like any final response's. Native networking otherwise drops cookies from redirect hops on purpose (iOS) and the option exists only for this login.
+- The session cookie never reaches JS. It lives in the server's own native cookie jar, the scope `<profile>::self-hosted:<sourceId>` that no package can claim: in memory, sent only to that host, dropped with the scope (address or login change, sign-out, profile reset, app restart). The server forgets idle sessions (30 minutes by default) and on restart; a refused session is replaced by signing in again once.
+- Images keep Basic with `opds=true` under `simple_login` too: it does not expire with the session. Image requests share the scope, so they also carry the cookie, which is what lets an older server's thumbnails through.
+
+Errors say which of these went wrong: no login given (`login-required`), login refused (`unauthorized`, including a login form that came back instead of redirecting), a schema without the queries (`outdated`).

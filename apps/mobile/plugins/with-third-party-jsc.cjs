@@ -1231,6 +1231,7 @@ module.exports.removeRedundantAndroidDefaultOrientation =
 module.exports.androidNetworkSecurityConfigXml =
   ANDROID_NETWORK_SECURITY_CONFIG_XML;
 module.exports.androidLintXml = ANDROID_LINT_XML;
+module.exports.firstPartyHttpsOnlyDomains = ANDROID_FIRST_PARTY_HTTPS_ONLY_DOMAINS;
 module.exports.patchAndroidDebugManifest = patchAndroidDebugManifest;
 module.exports.patchAndroidReflectionProguardRules =
   patchAndroidReflectionProguardRules;

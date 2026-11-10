@@ -62,17 +62,19 @@ export function MobileServerSourceSections({
           />
         </SwiftLabeledContent>
       </SwiftSection>
-      <SwiftSection footer={<SwiftText>{strings.selfHosted.loginFooter}</SwiftText>}>
+      <SwiftSection footer={<SwiftText>{form.loginFooter}</SwiftText>}>
         <SwiftLabeledContent label={strings.selfHosted.username}>
           <SwiftTextField text={username} placeholder={strings.selfHosted.username} onTextChange={form.setUsername} modifiers={plainText} />
         </SwiftLabeledContent>
         <SwiftLabeledContent label={strings.selfHosted.password}>
           <SwiftSecureField text={password} placeholder={strings.selfHosted.password} onTextChange={form.setPassword} modifiers={[multilineTextAlignment("trailing"), textContentType("oneTimeCode")]} />
         </SwiftLabeledContent>
-        <SwiftLabeledContent label={strings.selfHosted.apiKey}>
-          {/* A plain field: two secure fields in one form read as account sign-up, and iOS offers to generate a password. */}
-          <SwiftTextField text={apiKey} placeholder={strings.selfHosted.apiKey} onTextChange={form.setApiKey} modifiers={plainText} />
-        </SwiftLabeledContent>
+        {form.takesApiKey ? (
+          <SwiftLabeledContent label={strings.selfHosted.apiKey}>
+            {/* A plain field: two secure fields in one form read as account sign-up, and iOS offers to generate a password. */}
+            <SwiftTextField text={apiKey} placeholder={strings.selfHosted.apiKey} onTextChange={form.setApiKey} modifiers={plainText} />
+          </SwiftLabeledContent>
+        ) : null}
       </SwiftSection>
       {form.saving ? (
         <SwiftSection>

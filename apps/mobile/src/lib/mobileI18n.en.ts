@@ -1248,6 +1248,7 @@ export const mobileStringsEn: MobileStrings = {
     apiKey: "API key",
     loginFooter:
       "Sign in with a username and password, or with an API key. The login is kept only on this device.",
+    loginFooterPassword: "Sign in with a username and password. The login is kept only on this device.",
     connecting: "Connecting…",
     connectFailedTitle: "Couldn't connect",
     errorAddressEmpty: "Enter the address of your server.",
@@ -1259,11 +1260,13 @@ export const mobileStringsEn: MobileStrings = {
       "This device can't be reached through localhost. Use the server's address on your network.",
     errorUnreachable:
       "The server didn't answer. Check the address, and that this device can reach it.",
+    errorLoginRequired: "This server needs a login. Enter its username and password.",
     errorUnauthorized: "The server didn't accept this login.",
     errorForbidden: "This account isn't allowed to use the server's API.",
     errorNotThisServer: "That address doesn't look like a {{kind}} server.",
     errorServer: "The server returned an error ({{status}}).",
     errorUnsupported: "This kind of server isn't supported yet.",
+    errorOutdated: "This version of {{kind}} is too old. Update the server and try again.",
     needsSignIn:
       "This server's login isn't on this device. Open the source's settings to sign in.",
     reservedSourceId:

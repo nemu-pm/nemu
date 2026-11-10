@@ -129,6 +129,10 @@ struct NemuAidokuHttpRequest: Record {
 
   @Field
   var requireHttps: Bool = false
+
+  /// false: a 3xx response is returned instead of followed.
+  @Field
+  var followRedirects: Bool = true
 }
 
 struct NemuAidokuHttpFileRequest: Record, @unchecked Sendable {
@@ -584,6 +588,11 @@ private final class NemuScopedCookieSessionDelegate: NSObject, URLSessionDownloa
     newRequest request: URLRequest,
     completionHandler: @escaping (URLRequest?) -> Void
   ) {
+    // The caller wants the redirect response itself: it completes the task.
+    guard NemuNativeHttpRedirectPolicy.followsRedirects(task.originalRequest) else {
+      completionHandler(nil)
+      return
+    }
     // Preserve the early policy error, while the loopback proxy independently
     // resolves and pins an exact public address before this redirect is sent.
     guard let proposedURL = request.url else {
@@ -2622,6 +2631,9 @@ public class NemuAidokuModule: Module {
       &urlRequest,
       scope: request.cookieScope?.trimmingCharacters(in: .whitespacesAndNewlines)
     )
+    if !request.followRedirects {
+      NemuNativeHttpRedirectPolicy.markNotFollowingRedirects(&urlRequest)
+    }
 
     return urlRequest
   }
