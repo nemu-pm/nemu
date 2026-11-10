@@ -1,6 +1,10 @@
 import { memo, useCallback } from "react";
 import { StyleSheet, View } from "react-native";
 import { MobileChapterProgressAccessory } from "@/components/MobileChapterProgressAccessory";
+import { MobileChapterDownloadGlyph } from "@/components/MobileChapterDownloadGlyph";
+import { formatMobileChapterDownloadStatus } from "@/lib/downloads/mobileDownloadStatusLabel";
+import { useMobileChapterDownloadStatus } from "@/lib/downloads/mobileDownloads";
+import type { MobileDownloadMangaRef } from "@/lib/downloads/mobileDownloadTypes";
 import {
   NemuPressable,
   NemuText,
@@ -40,6 +44,10 @@ type MobileChapterCellProps = {
    */
   onPress: (chapter: ChapterSummary) => void;
   showLanguage?: boolean;
+  /** The work, when its chapters can be downloaded: the cell shows the state. */
+  downloadManga?: MobileDownloadMangaRef | null;
+  /** Long press: the chapter's download actions (Android has no context menu). */
+  onLongPress?: (chapter: ChapterSummary) => void;
 };
 
 export const MobileChapterCell = memo(function MobileChapterCell({
@@ -51,11 +59,17 @@ export const MobileChapterCell = memo(function MobileChapterCell({
   strings,
   onPress,
   showLanguage = false,
+  downloadManga = null,
+  onLongPress,
 }: MobileChapterCellProps) {
   const { tokens } = useNemuTheme();
   const handlePress = useCallback(() => {
     onPress(chapter);
   }, [chapter, onPress]);
+  const handleLongPress = useCallback(() => {
+    onLongPress?.(chapter);
+  }, [chapter, onLongPress]);
+  const download = useMobileChapterDownloadStatus(downloadManga, chapter.id);
   const chapterPresentation = getMobileChapterPresentation(chapter, progress);
   const chapterVisualState = getMobileChapterVisualState(chapterPresentation);
   const cellPalette = getMobileChapterRowPalette(chapterVisualState, tokens);
@@ -75,6 +89,7 @@ export const MobileChapterCell = memo(function MobileChapterCell({
     chapterAccessibilityLabel,
     chapterPresentation.isNew ? strings.common.new : null,
     progressLabel,
+    formatMobileChapterDownloadStatus(download, strings),
   ]
     .filter(Boolean)
     .join(". ");
@@ -106,6 +121,7 @@ export const MobileChapterCell = memo(function MobileChapterCell({
       accessibilityState={{ disabled: chapterDisabled }}
       disabled={chapterDisabled}
       onPress={handlePress}
+      onLongPress={onLongPress && !chapterPresentation.isLocked ? handleLongPress : undefined}
       pressedScale={0.985}
       style={[
         styles.cell,
@@ -133,6 +149,12 @@ export const MobileChapterCell = memo(function MobileChapterCell({
           </NemuText>
         ) : null}
       </View>
+      <MobileChapterDownloadGlyph
+        status={download}
+        color={download.kind === "downloaded" ? tokens.mutedForeground : tokens.primary}
+        dangerColor={tokens.danger}
+        size={15}
+      />
       <MobileChapterProgressAccessory
         progress={progress}
         locked={chapterPresentation.isLocked}
