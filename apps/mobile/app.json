@@ -4,7 +4,7 @@
     "slug": "nemu-mobile",
     "owner": "nemu-pm",
     "scheme": ["nemu", "aidoku"],
-    "version": "1.0.0",
+    "version": "1.0.1",
     "runtimeVersion": {
       "policy": "appVersion"
     },
