@@ -755,6 +755,8 @@ import {
   applyMobileSourcePackageHydration,
   type MobileSourcePackageHydration,
 } from "@/sources/mobileSourcePackageLoader";
+import { mobileDownloads } from "@/lib/downloads/mobileDownloads";
+import { mobileDownloadChapterKey } from "@/lib/downloads/mobileDownloadPaths";
 import type {
   MobileReaderPluginId,
   MobileReaderPluginState,
@@ -5369,7 +5371,10 @@ export function ReaderScreen() {
   // the list at their real heights.
   readerStripLoadChapterRef.current = async (target) => {
     const installedSource = selectedInstalledSource;
-    if (!installedSource) return null;
+    const downloaded = await mobileDownloads
+      .loadDownloadedChapter({ registryId, sourceId, mangaId, chapterId: target.id })
+      .catch(() => null);
+    if (!installedSource && !downloaded) return null;
     const sizes = loadMobileReaderPageSizes(
       makeMobileReaderPageSizeChapterKey({
         registryId: routeRef.registryId,
@@ -5385,9 +5390,21 @@ export function ReaderScreen() {
       chapterId: target.id,
       processPageImages,
     });
-    const prefetched = mobileReaderPagesPrefetchCache.take(pageListCacheKey);
-    let result: MobileReaderPagesRefresh | null = prefetched ? await prefetched : null;
-    if (!result) {
+    const prefetched = downloaded ? null : mobileReaderPagesPrefetchCache.take(pageListCacheKey);
+    let result: MobileReaderPagesRefresh | null = downloaded
+      ? {
+          status: "ready",
+          runtime: "native-aidoku",
+          pages: downloaded.pages,
+          chapters: downloaded.chapters,
+          chapterIndexStatus: downloaded.chapters.length ? "ready" : "unavailable",
+          chapter: downloaded.chapter,
+          fetchedAt: downloaded.fetchedAt,
+        }
+      : prefetched
+        ? await prefetched
+        : null;
+    if (!result && installedSource) {
       // A source call in the opening window of a cache-painted open would boot
       // a cold sandbox under the cover's fade: it waits for the fade to end.
       await waitForReaderOpeningWindow(readerOpeningGateRef.current, {
@@ -5402,13 +5419,15 @@ export function ReaderScreen() {
         priority: "normal",
       });
     }
+    if (!result) return null;
     for (const [pageId, size] of (await sizes) ?? []) {
       const stableKey = readerStablePageSizeKeyForChapter(target.id, { id: pageId });
       if (!recallMobileReaderPageNaturalSize(stableKey)) {
         rememberMobileReaderPageNaturalSize(stableKey, size);
       }
     }
-    if (result.status === "ready" && result.pages.length > 0) {
+    // Downloaded pages are this device's files: never the page-list cache's.
+    if (!downloaded && result.status === "ready" && result.pages.length > 0) {
       const cacheableChapters = resolveMobileReaderChapterIndex({
         chapterIndexStatus: result.chapterIndexStatus,
         chapters: result.chapters,
@@ -8391,25 +8410,19 @@ export function ReaderScreen() {
       try {
         const installedSource = selectedInstalledSource;
 
-        if (!installedSource) {
-          if (readerPagesRequestRunRef.current === requestRun) {
-            setPagesState({
-              status: "blocked",
-              pages: [],
-              detail: effectStrings.reader.sourcePackageUnavailable,
-            });
-          }
-          return;
-        }
-
         const pageSizeChapterKey = readerPageSizeChapterKeyRef.current;
         const stablePageSizeKeyFor = readerStablePageSizeKeyForRef.current;
         const sourceImageProcessorKey = `${registryId}:${sourceId}`;
+        // A downloaded chapter reads from its own files: no source, no network.
+        const downloadedRead = mobileDownloads
+          .loadDownloadedChapter({ registryId, sourceId, mangaId, chapterId })
+          .catch(() => null);
         const [persisted, persistedPageSizes, sourceImageProcessor] = await Promise.all([
           loadMobileReaderPageListCache(pageListCacheKey),
           loadMobileReaderPageSizes(pageSizeChapterKey),
           loadMobileReaderSourceImageProcessor(sourceImageProcessorKey).catch(() => null),
         ]);
+        const downloaded = await downloadedRead;
         // The source's own answer about processing its images: remembered
         // for the source, for page lists saved before it was recorded.
         const noteSourceImageProcessor = (imageProcessor: boolean | undefined) => {
@@ -8425,6 +8438,33 @@ export function ReaderScreen() {
             rememberMobileReaderPageNaturalSize(stableKey, size);
           }
         }
+        if (downloaded) {
+          if (readerPagesRequestRunRef.current !== requestRun) return;
+          readerOpenPaintedFromCacheRef.current = true;
+          readerPagesLoadedKeyRef.current = pagesRequestKey;
+          setPagesState({
+            status: "ready",
+            pages: downloaded.pages,
+            // The page-list cache's index is the newer one when it has one.
+            chapters: persisted?.chapters.length ? persisted.chapters : downloaded.chapters,
+            detail: formatReaderLoadedPages(downloaded.pages.length, effectStrings),
+            fetchedAt: downloaded.fetchedAt,
+            chapter: downloaded.chapter,
+          });
+          return;
+        }
+
+        if (!installedSource) {
+          if (readerPagesRequestRunRef.current === requestRun) {
+            setPagesState({
+              status: "blocked",
+              pages: [],
+              detail: effectStrings.reader.sourcePackageUnavailable,
+            });
+          }
+          return;
+        }
+
         // The source's answer, when it is the very list already painted from
         // the cache, keeps the cache's `fetchedAt`: no second remount.
         const fetchedAtFor = (fetched: {
@@ -8704,6 +8744,14 @@ export function ReaderScreen() {
 
     const installedSource = selectedInstalledSource;
     if (!installedSource) return;
+    // A downloaded next chapter opens from its files: nothing to warm up.
+    if (
+      mobileDownloads.getState().chapters[
+        mobileDownloadChapterKey({ registryId, sourceId, mangaId, chapterId: nextChapter.id })
+      ]
+    ) {
+      return;
+    }
 
     const timeout = setTimeout(() => {
       try {
