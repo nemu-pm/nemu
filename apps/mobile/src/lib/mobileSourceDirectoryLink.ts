@@ -1,11 +1,3 @@
-/**
- * `nemu://addSourceList?url=<https url>` and Aidoku's
- * `aidoku://addSourceList?url=<https url>` add a source directory in one tap.
- * Any other `aidoku://` link (Aidoku's `aidoku://<sourceId>/<mangaKey>` deep
- * links) is not ours to handle and is ignored.
- */
-
-export const MOBILE_SOURCE_DIRECTORY_LINK_SCHEMES = ["nemu", "aidoku"] as const;
 
 export type MobileSourceDirectoryLink =
   | { kind: "add-directory"; url: string }

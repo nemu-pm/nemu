@@ -15,8 +15,6 @@
  */
 export type ReaderWindowShape = "narrow" | "wide" | "large";
 
-export const READER_WINDOW_SHAPES: readonly ReaderWindowShape[] = ["narrow", "wide", "large"];
-
 /** Material "medium" width: the point where a window stops being phone-sized. */
 export const READER_LARGE_MIN_SHORT_SIDE = 600;
 

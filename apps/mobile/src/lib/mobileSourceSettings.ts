@@ -6,7 +6,6 @@ import {
   MAX_CORE_SETTING_NODES,
   MAX_CORE_SETTING_OPTIONS,
   countCoreSettings,
-  extractCoreSettingDefaults,
   flattenCoreSettings,
   formatSettingDisplayValue,
   isCoreSettingVisible,

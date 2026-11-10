@@ -22,7 +22,6 @@ const WIDE = { width: 2000, height: 1450 };
 const MODES: ReadingMode[] = ["rtl", "ltr"];
 // Fitted widths as the reader frames them: a pair's pages share one height.
 const widthAt = () => 461.2;
-const allReady = () => true;
 
 function centreOf(rect: { x: number; width: number }): number {
   return rect.x + rect.width / 2;

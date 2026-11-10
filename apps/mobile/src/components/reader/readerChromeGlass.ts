@@ -75,6 +75,3 @@ export function readerChromeGlassBorderColor(
     : fallbackBorderColor || READER_CHROME_GLASS_BORDER.light;
 }
 
-export function readerChromeGlassShadowColor(scheme: "light" | "dark"): string {
-  return READER_CHROME_GLASS_SHADOW[scheme];
-}

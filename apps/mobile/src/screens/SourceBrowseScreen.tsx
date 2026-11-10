@@ -65,7 +65,6 @@ import {
 import {
   type SourcePackageListing,
   type SourcePackageMetadata,
-  type SourcePackageSetting,
   type InstalledSource,
 } from "@/data/schema";
 import {

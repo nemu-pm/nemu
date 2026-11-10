@@ -85,7 +85,6 @@ export const AUTO_ALIGN_MISSING_DISTANCE = 45;
 export const AUTO_ALIGN_MISSING_GAP = 10;
 export const ALIGNMENT_RETRY_MS = 2000;
 export const ALIGNMENT_MAX_CONCURRENCY = 2;
-export const ALIGNMENT_VISIBLE_DEBOUNCE_MS = 300;
 
 export { buildAlignmentQueue, getAlignmentPlanSignature };
 export { ALIGNMENT_CONFIDENCE_MIN_DEFAULT, ALIGNMENT_FINE_MAX_DEFAULT };

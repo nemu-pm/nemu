@@ -1,7 +1,6 @@
 import type { MobileStrings } from "@/lib/mobileI18n";
 import { READER_FIT_MODES, type ReaderFitMode } from "@/lib/mobileReaderFit";
 import { READER_SPREAD_MODES, type ReaderSpreadMode } from "@/lib/mobileReaderSpreadMode";
-import type { ReaderWindowShape } from "@/lib/mobileReaderWindowShape";
 import type { MobileReaderSpreadPairing } from "@/lib/mobileReaderPairing";
 import type { MobileReaderPageBackground } from "@/lib/mobileReaderPageBackground";
 import type { MobileReaderPageTurn } from "@/lib/mobileReaderPageCurl";
@@ -82,27 +81,3 @@ export function readerFitModeLabel(mode: ReaderFitMode, strings: MobileStrings):
   }
 }
 
-export function readerWindowShapeLabel(shape: ReaderWindowShape, strings: MobileStrings): string {
-  switch (shape) {
-    case "wide":
-      return strings.reader.windowShapeWide;
-    case "large":
-      return strings.reader.windowShapeLarge;
-    default:
-      return strings.reader.windowShapeNarrow;
-  }
-}
-
-/** SF Symbol per fit choice for the native menu rows. */
-export function readerFitModeSystemImage(mode: ReaderFitMode): string {
-  switch (mode) {
-    case "width":
-      return "arrow.left.and.right";
-    case "height":
-      return "arrow.up.and.down";
-    case "fill":
-      return "arrow.up.left.and.arrow.down.right";
-    default:
-      return "rectangle.portrait";
-  }
-}

@@ -17,7 +17,6 @@ import {
   findNodeHandle,
   useWindowDimensions,
   type FlatList,
-  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
