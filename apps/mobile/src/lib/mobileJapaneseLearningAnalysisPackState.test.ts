@@ -9,8 +9,11 @@ import {
   describeMobileJapaneseLearningPackRow,
   formatMobileJapaneseLearningPackMegabytes,
   MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE,
+  MOBILE_JAPANESE_LEARNING_PACK_PROGRESS_INTERVAL_MS,
+  mobileJapaneseLearningPackNotifyDelay,
   mobileJapaneseLearningPackProgressFraction,
   reduceMobileJapaneseLearningPackState,
+  shouldPrefetchMobileJapaneseLearningPack,
   shouldStartMobileJapaneseLearningPackInstall,
   type MobileJapaneseLearningPackEvent,
   type MobileJapaneseLearningPackState,
@@ -18,6 +21,7 @@ import {
 import {
   getMobileJapaneseLearningAnalysisPackState,
   installMobileJapaneseLearningAnalysisPackNow,
+  prefetchMobileJapaneseLearningAnalysisPack,
   refreshMobileJapaneseLearningAnalysisPackStatus,
   removeMobileJapaneseLearningAnalysisPackNow,
   resetMobileJapaneseLearningAnalysisPackStoreForTesting,
@@ -259,6 +263,119 @@ describe("settings engine switch", () => {
   });
 });
 
+describe("reader prefetch", () => {
+  const notInstalled: MobileJapaneseLearningPackState = { kind: "notInstalled" };
+  const onWifi = {
+    pluginEnabled: true,
+    preference: "auto" as const,
+    state: notInstalled,
+    networkType: "WIFI",
+    internetReachable: true,
+  };
+
+  test("downloads a missing pack on Wi-Fi or Ethernet for on-device analysis", () => {
+    expect(shouldPrefetchMobileJapaneseLearningPack(onWifi)).toBe(true);
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, preference: "onDevice" })).toBe(true);
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, networkType: "ETHERNET" })).toBe(true);
+    // Reachability still being probed is not evidence of an offline link.
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, internetReachable: undefined })).toBe(true);
+  });
+
+  test("never on cellular, an unknown link, or without the internet", () => {
+    for (const networkType of ["CELLULAR", "UNKNOWN", "NONE", "BLUETOOTH", undefined]) {
+      expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, networkType })).toBe(false);
+    }
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, internetReachable: false })).toBe(false);
+  });
+
+  test("never with the plugin off, the cloud engine, or a pack that is not settled missing", () => {
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, pluginEnabled: false })).toBe(false);
+    expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, preference: "cloud" })).toBe(false);
+    const others: MobileJapaneseLearningPackState[] = [
+      { kind: "unknown" },
+      { kind: "unavailable" },
+      { kind: "installing", phase: "downloading", completedBytes: 1, totalBytes: 2 },
+      { kind: "installed", installedBytes: null, packVersion: null },
+      // A failure waits for the user's retry.
+      { kind: "failed", message: "offline" },
+      { kind: "removing" },
+    ];
+    for (const state of others) {
+      expect(shouldPrefetchMobileJapaneseLearningPack({ ...onWifi, state })).toBe(false);
+    }
+  });
+});
+
+describe("progress notifications", () => {
+  const downloading = (completedBytes: number): MobileJapaneseLearningPackState => ({
+    kind: "installing",
+    phase: "downloading",
+    completedBytes,
+    totalBytes: 100,
+  });
+  const progress = (
+    phase: "downloading" | "verifying",
+    completedBytes: number,
+  ): MobileJapaneseLearningPackEvent => ({
+    type: "progress",
+    progress: { phase, completedBytes, totalBytes: 100 },
+  });
+
+  test("byte counts within a phase go out at most every interval", () => {
+    const interval = MOBILE_JAPANESE_LEARNING_PACK_PROGRESS_INTERVAL_MS;
+    const event = progress("downloading", 20);
+    const next = downloading(20);
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({ previous: downloading(10), next, event, sinceLastNotifyMs: 50 }),
+    ).toBe(interval - 50);
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({ previous: downloading(10), next, event, sinceLastNotifyMs: interval }),
+    ).toBe(0);
+  });
+
+  test("a new phase and every lifecycle change go out at once", () => {
+    const verifying: MobileJapaneseLearningPackState = {
+      kind: "installing",
+      phase: "verifying",
+      completedBytes: 100,
+      totalBytes: 100,
+    };
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({
+        previous: downloading(90),
+        next: verifying,
+        event: progress("verifying", 100),
+        sinceLastNotifyMs: 1,
+      }),
+    ).toBe(0);
+    // The first byte count after "starting" is a new phase too.
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({
+        previous: { kind: "installing", phase: "starting", completedBytes: 0, totalBytes: 100 },
+        next: downloading(1),
+        event: progress("downloading", 1),
+        sinceLastNotifyMs: 1,
+      }),
+    ).toBe(0);
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({
+        previous: downloading(100),
+        next: { kind: "installed", installedBytes: null, packVersion: null },
+        event: { type: "install-succeeded", status: installedStatus },
+        sinceLastNotifyMs: 1,
+      }),
+    ).toBe(0);
+    expect(
+      mobileJapaneseLearningPackNotifyDelay({
+        previous: downloading(10),
+        next: { kind: "failed", message: "offline" },
+        event: { type: "install-failed", message: "offline" },
+        sinceLastNotifyMs: 1,
+      }),
+    ).toBe(0);
+  });
+});
+
 function fakePackModule(options: { failInstall?: boolean } = {}) {
   let installed = false;
   const calls = { install: 0, remove: 0 };
@@ -330,6 +447,40 @@ describe("pack store", () => {
     expect(describeMobileJapaneseLearningPackRow(state, en, "auto", false)?.status).toBe(
       en.japaneseLearningDictionary.failed,
     );
+  });
+});
+
+describe("pack store prefetch", () => {
+  const wifi = {
+    pluginEnabled: true,
+    preference: "auto" as const,
+    networkType: "WIFI",
+    internetReachable: true,
+  };
+
+  test("starts a missing download once per session", async () => {
+    const { module, calls } = fakePackModule();
+    resetMobileJapaneseLearningAnalysisPackStoreForTesting(module);
+    expect(await prefetchMobileJapaneseLearningAnalysisPack(wifi)).toBe(true);
+    expect(calls.install).toBe(1);
+    expect(getMobileJapaneseLearningAnalysisPackState().kind).toBe("installed");
+
+    // Removed in settings: the next chapter does not fetch it again.
+    expect(await removeMobileJapaneseLearningAnalysisPackNow()).toBe(true);
+    expect(await prefetchMobileJapaneseLearningAnalysisPack(wifi)).toBe(false);
+    expect(calls.install).toBe(1);
+  });
+
+  test("a skipped prefetch (cellular) leaves the session's prefetch for Wi-Fi", async () => {
+    const { module, calls } = fakePackModule();
+    resetMobileJapaneseLearningAnalysisPackStoreForTesting(module);
+    expect(
+      await prefetchMobileJapaneseLearningAnalysisPack({ ...wifi, networkType: "CELLULAR" }),
+    ).toBe(false);
+    expect(calls.install).toBe(0);
+    expect(getMobileJapaneseLearningAnalysisPackState().kind).toBe("notInstalled");
+    expect(await prefetchMobileJapaneseLearningAnalysisPack(wifi)).toBe(true);
+    expect(calls.install).toBe(1);
   });
 });
 

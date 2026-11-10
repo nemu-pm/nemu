@@ -11,7 +11,9 @@ import { createChangeListeners } from "./mobileChangeListeners";
 import type { NemuJapaneseLearningNativeModule } from "../../modules/nemu-japanese-learning/src/NemuJapaneseLearning.types";
 import {
   MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE,
+  mobileJapaneseLearningPackNotifyDelay,
   reduceMobileJapaneseLearningPackState,
+  shouldPrefetchMobileJapaneseLearningPack,
   type MobileJapaneseLearningPackEvent,
   type MobileJapaneseLearningPackState,
 } from "./mobileJapaneseLearningAnalysisPackState";
@@ -27,12 +29,35 @@ let state: MobileJapaneseLearningPackState = MOBILE_JAPANESE_LEARNING_PACK_INITI
 let changes = createChangeListeners();
 let detachEngine: (() => void) | null = null;
 let moduleOverride: NemuJapaneseLearningNativeModule | null | undefined;
+let lastNotifiedAt = Number.NEGATIVE_INFINITY;
+let pendingNotify: ReturnType<typeof setTimeout> | null = null;
+
+function notifyNow(): void {
+  if (pendingNotify) {
+    clearTimeout(pendingNotify);
+    pendingNotify = null;
+  }
+  lastNotifiedAt = Date.now();
+  changes.notify();
+}
 
 function dispatch(event: MobileJapaneseLearningPackEvent): void {
   const next = reduceMobileJapaneseLearningPackState(state, event);
   if (next === state) return;
+  const previous = state;
   state = next;
-  changes.notify();
+  const delay = mobileJapaneseLearningPackNotifyDelay({
+    previous,
+    next,
+    event,
+    sinceLastNotifyMs: Date.now() - lastNotifiedAt,
+  });
+  if (delay === 0) {
+    notifyNow();
+  } else if (!pendingNotify) {
+    // The latest count is in `state`; the trailing notify publishes it.
+    pendingNotify = setTimeout(notifyNow, delay);
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -99,6 +124,26 @@ export async function installMobileJapaneseLearningAnalysisPackNow(): Promise<bo
   }
 }
 
+let prefetchStarted = false;
+
+/**
+ * The reader's quiet download (`shouldPrefetchMobileJapaneseLearningPack`):
+ * at most one per app session, so a pack the user removed is not fetched
+ * again on every chapter. Resolves true once the pack is ready.
+ */
+export async function prefetchMobileJapaneseLearningAnalysisPack(
+  conditions: Omit<Parameters<typeof shouldPrefetchMobileJapaneseLearningPack>[0], "state">,
+): Promise<boolean> {
+  if (prefetchStarted) return false;
+  attachEngine();
+  await refreshMobileJapaneseLearningAnalysisPackStatus();
+  if (prefetchStarted || !shouldPrefetchMobileJapaneseLearningPack({ ...conditions, state })) {
+    return false;
+  }
+  prefetchStarted = true;
+  return installMobileJapaneseLearningAnalysisPackNow();
+}
+
 /** "Remove": frees the ~38 MB installed pack; it downloads again on next use. */
 export async function removeMobileJapaneseLearningAnalysisPackNow(): Promise<boolean> {
   attachEngine();
@@ -122,12 +167,28 @@ export function useMobileJapaneseLearningAnalysisPackState(): MobileJapaneseLear
   );
 }
 
+/**
+ * One derived value of the pack state. A view that needs only a flag
+ * (installing? failed?) re-renders when that flag flips, not on every byte
+ * count. `select` must return a primitive.
+ */
+export function useMobileJapaneseLearningAnalysisPackSelector<
+  T extends string | number | boolean | null,
+>(select: (state: MobileJapaneseLearningPackState) => T): T {
+  const read = () => select(state);
+  return useSyncExternalStore(subscribeMobileJapaneseLearningAnalysisPackState, read, read);
+}
+
 /** Tests: fresh state and an injected native module (`undefined` = real one). */
 export function resetMobileJapaneseLearningAnalysisPackStoreForTesting(
   module?: NemuJapaneseLearningNativeModule | null,
 ): void {
   detachEngine?.();
   detachEngine = null;
+  if (pendingNotify) clearTimeout(pendingNotify);
+  pendingNotify = null;
+  lastNotifiedAt = Number.NEGATIVE_INFINITY;
+  prefetchStarted = false;
   changes = createChangeListeners();
   moduleOverride = module;
   state = MOBILE_JAPANESE_LEARNING_PACK_INITIAL_STATE;

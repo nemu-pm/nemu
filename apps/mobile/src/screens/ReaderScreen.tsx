@@ -621,6 +621,7 @@ import {
   mobileReaderScreenOptions,
 } from "@/lib/mobileReaderRouteOptions";
 import { useMobileConnectivity } from "@/lib/useMobileConnectivity";
+import { useMobileJapaneseLearningPackPrefetch } from "@/lib/useMobileJapaneseLearningPackPrefetch";
 import {
   READER_CHROME_MATERIAL_CURVE,
   readerChromeHasScrubber,
@@ -5759,6 +5760,7 @@ export function ReaderScreen() {
       resetJapaneseLearningChat();
     }
   }, [japaneseLearningPluginEnabled, resetJapaneseLearningChat]);
+  useMobileJapaneseLearningPackPrefetch(japaneseLearningPluginEnabled === true);
 
   useEffect(() => {
     return () => {
