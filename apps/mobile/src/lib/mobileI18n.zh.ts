@@ -1192,8 +1192,6 @@ export const mobileStringsZh: MobileStrings = {
     errorAddressCredentials: "不要把用户名或密码写进地址，请填在下面的栏位里。",
     errorAddressLocal: "无法通过 localhost 访问。请使用服务器在局域网中的地址。",
     errorUnreachable: "服务器没有响应。请检查地址，并确认此设备能访问它。",
-    errorInsecureHttp:
-      "iOS 只允许用 http:// 连接本地网络中的地址，例如 192.168.1.20 或 nas.local。请改用服务器的 https:// 地址，或它的 IP 地址。",
     errorLoginRequired: "这台服务器需要登录。请填写用户名和密码。",
     errorUnauthorized: "服务器不接受这个登录信息。",
     errorForbidden: "此账号无权使用服务器的 API。",

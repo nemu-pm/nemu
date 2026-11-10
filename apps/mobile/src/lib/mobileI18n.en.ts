@@ -1260,8 +1260,6 @@ export const mobileStringsEn: MobileStrings = {
       "This device can't be reached through localhost. Use the server's address on your network.",
     errorUnreachable:
       "The server didn't answer. Check the address, and that this device can reach it.",
-    errorInsecureHttp:
-      "iOS only allows http:// to an address on your network, such as 192.168.1.20 or nas.local. Use the server's https:// address, or its IP address.",
     errorLoginRequired: "This server needs a login. Enter its username and password.",
     errorUnauthorized: "The server didn't accept this login.",
     errorForbidden: "This account isn't allowed to use the server's API.",

@@ -1101,8 +1101,6 @@ export type MobileStrings = {
     errorAddressCredentials: string;
     errorAddressLocal: string;
     errorUnreachable: string;
-    /** iOS refuses plain http to a domain name (App Transport Security). */
-    errorInsecureHttp: string;
     /** The server wants a login and the form had none. */
     errorLoginRequired: string;
     errorUnauthorized: string;

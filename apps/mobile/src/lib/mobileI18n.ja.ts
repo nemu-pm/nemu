@@ -1273,8 +1273,6 @@ export const mobileStringsJa: MobileStrings = {
       "localhostではこのデバイスから接続できません。ネットワーク上のサーバーのアドレスを使ってください。",
     errorUnreachable:
       "サーバーから応答がありません。アドレスと、このデバイスから接続できるかを確認してください。",
-    errorInsecureHttp:
-      "iOSでhttp://を使えるのは、192.168.1.20やnas.localのようなネットワーク内のアドレスだけです。サーバーのhttps://アドレスか、IPアドレスを使ってください。",
     errorLoginRequired: "このサーバーにはログインが必要です。ユーザー名とパスワードを入力してください。",
     errorUnauthorized: "サーバーがこのログイン情報を受け付けませんでした。",
     errorForbidden: "このアカウントにはサーバーのAPIを使う権限がありません。",

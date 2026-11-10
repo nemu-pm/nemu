@@ -80,6 +80,23 @@ While a server is being added its address has no row yet; the connection test
 creates a throwaway scope covering exactly that address and revokes it when the
 test ends (`connectionTest.ts`).
 
+### Plain http
+
+A home server is usually plain http, and users reach it by whatever name they
+have: an IP address, `nas.local`, `nas.lan`, a dynamic-DNS or Tailscale
+MagicDNS name. iOS App Transport Security therefore allows plain http to any
+host (`NSAllowsArbitraryLoads`), the iOS counterpart of Android's network
+security config, which already permits cleartext. Both pin nemu's own hosts
+(`nemu.pm`, `convex.cloud`, `convex.site`, subdomains included) to HTTPS.
+
+The ATS dictionary is written whole by `plugins/with-app-transport-security.cjs`
+during prebuild. It must not contain `NSAllowsLocalNetworking`,
+`NSAllowsArbitraryLoadsInWebContent` or `NSAllowsArbitraryLoadsForMedia`: on
+iOS 10 and later any of them makes iOS ignore `NSAllowsArbitraryLoads`, and
+plain http to a domain name is refused again. Source traffic is still confined
+by the native SSRF policy above; source image URLs are still upgraded to https
+unless they are a self-hosted server's own.
+
 ## Sync across devices
 
 The row syncs, the login does not. A second device receives the source with its
