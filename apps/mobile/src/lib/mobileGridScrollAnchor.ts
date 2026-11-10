@@ -3,8 +3,8 @@
  *
  * A width change moves the column count (FlatList must remount for a new
  * `numColumns`) or the cell size (every row height changes), so a pixel
- * offset — or the proportion of the scroll range (`mobileGridScrollRestore`)
- * — lands on a different part of the list. The reader's eye was on the first
+ * offset — or the proportion of the scroll range — lands on a different part
+ * of the list. The reader's eye was on the first
  * visible cover: keep *that item* at the top of the viewport instead.
  *
  * FlatList reports multi-column viewability per item (`index` is the item
