@@ -28,6 +28,11 @@ import { SourceInstallDialog } from "./components/source-install-dialog"
 import { CloudflareBypassDialog } from "./components/cloudflare-bypass-dialog"
 import { SignInDialog } from "./components/sign-in-dialog"
 import { useAuthGate } from "./lib/auth-gate"
+import { initCrashReporting } from "./lib/crash-reporting"
+import { reactErrorHandler } from "@sentry/react"
+
+// Before the first render, so render errors and the page load are covered.
+initCrashReporting(router)
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
@@ -169,7 +174,15 @@ const scheduleIdle: (callback: () => void) => void =
     : (callback) => { setTimeout(callback, 5000) }
 scheduleIdle(() => { void sweepLegacyCacheEntriesOnce() })
 
-createRoot(document.getElementById("root")!).render(
+// React 19 reports errors here instead of to window.onerror; forward them to
+// Sentry (a no-op while reporting is off). Uncaught ones still reach the console.
+createRoot(document.getElementById("root")!, {
+  onUncaughtError: reactErrorHandler((error, errorInfo) => {
+    console.error(error, errorInfo.componentStack)
+  }),
+  onCaughtError: reactErrorHandler(),
+  onRecoverableError: reactErrorHandler(),
+}).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
