@@ -26,6 +26,13 @@ import {
 } from "@/lib/mobileChapterReadMarks";
 import { clearMobileReaderResumePositions } from "@/lib/mobileReaderResumePosition";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import {
+  renderMobileDownloadBarMenu,
+  renderMobileDownloadSelectionToolbars,
+} from "@/components/MobileDownloadBarMenu";
+import { useMobileMangaDownloads } from "@/lib/downloads/useMobileMangaDownloads";
+import { mobileDownloads } from "@/lib/downloads/mobileDownloads";
+import { mobileDownloadChapterKey } from "@/lib/downloads/mobileDownloadPaths";
 import { mobileExploreDetailRailHasButtons, splitMobileExploreDetailBarActions } from "@/lib/mobileExploreDetailRail";
 import { MobileMetadataEditorSheet } from "@/components/MobileMetadataEditorSheet";
 import { MobileSourceManagerSheet } from "@/components/MobileSourceManagerSheet";
@@ -1102,7 +1109,18 @@ export function SourceMangaScreen() {
       openingReaderRef.current = true;
       setOpeningReader(true);
       const installedSource = localState.installedSource;
-      if (installedSource) {
+      // A downloaded chapter opens from its files: nothing to warm up.
+      const downloaded = Boolean(
+        mobileDownloads.getState().chapters[
+          mobileDownloadChapterKey({
+            registryId: routeRef.registryId,
+            sourceId: routeRef.sourceId,
+            mangaId,
+            chapterId: chapter.id,
+          })
+        ],
+      );
+      if (installedSource && !downloaded) {
         void Promise.all([
           store.getSettings(),
           loadMobileSourceSettingsByKeys(store, [
@@ -1283,6 +1301,20 @@ export function SourceMangaScreen() {
     [chapters, localState.chapterProgress],
   );
   const toast = useMobileToast();
+  const downloadSourceLink = useMemo(
+    () => ({ registryId: routeRef.registryId, sourceId: routeRef.sourceId, sourceMangaId: mangaId }),
+    [mangaId, routeRef.registryId, routeRef.sourceId],
+  );
+  const downloads = useMobileMangaDownloads({
+    source: downloadSourceLink,
+    chapters,
+    progressById: localState.chapterProgress,
+    title,
+    strings,
+    toast,
+  });
+  const { chapterAction: downloadChapterAction, selection: downloadSelection } = downloads;
+  const selectedChapterIds = downloadSelection.selected;
   const shareLink = useCallback(async (url: string | null) => {
     if (!url) return;
     try {
@@ -1322,11 +1354,19 @@ export function SourceMangaScreen() {
         case "copyLink":
           void copyLink(resolveMobileShareUrl(chapter.url));
           return;
+        case "download":
+        case "cancelDownload":
+        case "removeDownload":
+          downloadChapterAction(chapter, action);
+          return;
+        case "toggleSelected":
+          downloadSelection.toggleSelected(chapter);
+          return;
         default:
           openReader(chapter, action === "start" ? 1 : undefined);
       }
     },
-    [copyLink, markChaptersRead, markChaptersUnread, openReader, shareLink],
+    [copyLink, downloadChapterAction, downloadSelection, markChaptersRead, markChaptersUnread, openReader, shareLink],
   );
   const renderExploreChapterRow = useCallback(
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
@@ -1343,14 +1383,18 @@ export function SourceMangaScreen() {
           strings={strings}
           onAction={onExploreChapterAction}
           moreActions
+          downloadManga={downloads.manga}
+          selected={selectedChapterIds ? selectedChapterIds.has(chapter.id) : null}
         />
       );
     },
     [
       chapterCommonGroup,
       chapterVolumeHeaders,
+      downloads.manga,
       localState.chapterProgress,
       onExploreChapterAction,
+      selectedChapterIds,
       readerActionBusy,
       strings,
       upNextChapterId,
@@ -1948,7 +1992,7 @@ export function SourceMangaScreen() {
         title={title}
         cover={coverImage.source ?? null}
         // Centred between Back and the ··· menu, as on the library title page.
-        trailingItems={barActions.buttons.length + 1}
+        trailingItems={barActions.buttons.length + 2}
         centred
         shown={barTitleShown}
         hidden={!heroTitleAway}
@@ -1971,7 +2015,8 @@ export function SourceMangaScreen() {
     }
     router.replace(action.href);
   }, [routeRef.registryId, routeRef.sourceId]);
-  const nativeBackToolbar = (
+  // Selection mode puts its Cancel where Back is.
+  const nativeBackToolbar = selectedChapterIds ? null : (
     <Stack.Toolbar placement="left">
       {renderNemuNativeToolbarButtons([
         {
@@ -1982,12 +2027,15 @@ export function SourceMangaScreen() {
       ])}
     </Stack.Toolbar>
   );
-  const nativeMenuToolbar = mobileDesignExploreFlag ? (
+  const nativeMenuToolbar = !mobileDesignExploreFlag ? null : selectedChapterIds ? (
+    renderMobileDownloadSelectionToolbars(downloads, strings)
+  ) : (
     <Stack.Toolbar placement="right">
       {renderNemuNativeToolbarButtons(barActions.buttons)}
+      {renderMobileDownloadBarMenu(downloads, strings, readerActionBusy || chapters.length === 0)}
       {renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)}
     </Stack.Toolbar>
-  ) : null;
+  );
 
   if (showLoadError) {
     return (

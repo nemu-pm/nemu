@@ -13,6 +13,8 @@ import "./src/polyfills/weakRef";
 import "./src/polyfills/base64";
 import "./src/polyfills/textEncoding";
 import "./src/polyfills/crypto";
+// Crash reporting (Sentry) starts before the rest of the app is evaluated.
+import "./src/lib/mobileCrashReportingEntry";
 // The "New design (preview)" switch is read here, synchronously, before any
 // module that reads it at load time and before the first screen.
 import "./src/lib/mobileDesignExploreBoot";

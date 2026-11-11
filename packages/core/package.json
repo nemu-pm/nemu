@@ -19,6 +19,10 @@
     "./library": {
       "types": "./src/library/index.ts",
       "import": "./src/library/index.ts"
+    },
+    "./crash-reporting": {
+      "types": "./src/crash-reporting.ts",
+      "import": "./src/crash-reporting.ts"
     }
   },
   "scripts": {

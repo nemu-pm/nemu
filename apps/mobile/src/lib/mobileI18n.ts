@@ -805,6 +805,9 @@ export type MobileStrings = {
     appearanceDescription: string;
     feedbackSection: string;
     feedbackSectionDescription: string;
+    privacySection: string;
+    shareCrashReports: string;
+    shareCrashReportsHint: string;
     readerDescriptionWithFeedback: string;
     agent: string;
     agentBuiltInEnabled: string;
@@ -1091,6 +1094,8 @@ export type MobileStrings = {
     password: string;
     apiKey: string;
     loginFooter: string;
+    /** The login footer of a server that has no API keys. */
+    loginFooterPassword: string;
     connecting: string;
     connectFailedTitle: string;
     errorAddressEmpty: string;
@@ -1099,6 +1104,8 @@ export type MobileStrings = {
     errorAddressCredentials: string;
     errorAddressLocal: string;
     errorUnreachable: string;
+    /** The server wants a login and the form had none. */
+    errorLoginRequired: string;
     errorUnauthorized: string;
     errorForbidden: string;
     /** `{{kind}}` is the server software's name. */
@@ -1106,6 +1113,8 @@ export type MobileStrings = {
     /** `{{status}}` is the HTTP status. */
     errorServer: string;
     errorUnsupported: string;
+    /** `{{kind}}` is the server software's name. */
+    errorOutdated: string;
     /** Shown instead of a source's content when its login is not on this device. */
     needsSignIn: string;
     reservedSourceId: string;
@@ -1271,6 +1280,68 @@ export type MobileStrings = {
     sourceSectionsLabel: string;
     seeAll: string;
     sourceOptions: string;
+  };
+  /** Chapter downloads for offline reading (离线下载). */
+  downloads: {
+    title: string;
+    /** The title page's download menu (its bar button). */
+    menu: string;
+    downloadChapter: string;
+    /** `{{count}}` unread chapters from where the reader is. */
+    downloadNext: string;
+    downloadUnread: string;
+    downloadAll: string;
+    selectChapters: string;
+    selectionTitle: string;
+    selectionEmpty: string;
+    selectAll: string;
+    deselectAll: string;
+    /** The selection bar's confirming action. */
+    downloadSelected: string;
+    removeDownload: string;
+    /** Every downloaded chapter of this title. */
+    removeDownloads: string;
+    cancelDownload: string;
+    /** Every queued chapter of this title. */
+    cancelDownloads: string;
+    retryDownload: string;
+    manageDownloads: string;
+    /** VoiceOver, after the chapter's own label. */
+    statusQueued: string;
+    statusDownloading: string;
+    statusPaused: string;
+    statusFailed: string;
+    statusDownloaded: string;
+    queuedOne: string;
+    queuedOther: string;
+    nothingToDownload: string;
+    storageUsed: string;
+    storageUnitGigabytes: string;
+    wifiOnly: string;
+    wifiOnlyFooter: string;
+    queueSection: string;
+    pauseAll: string;
+    resumeAll: string;
+    cancelAll: string;
+    pause: string;
+    resume: string;
+    waitingForNetwork: string;
+    waitingForWifi: string;
+    jobQueued: string;
+    jobDownloading: string;
+    jobPaused: string;
+    jobFailed: string;
+    jobProgress: string;
+    downloadedSection: string;
+    chapterCountOne: string;
+    chapterCountOther: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    deleteAll: string;
+    deleteAllTitle: string;
+    deleteAllMessage: string;
+    delete: string;
+    localOnlyFooter: string;
   };
 };
 

@@ -21,6 +21,11 @@ export type NemuAidokuHttpRequest = {
    * its existing HTTP compatibility when this is absent.
    */
   requireHttps?: boolean | null;
+  /**
+   * false: a redirect is not followed; its 3xx response is returned, and its
+   * cookies are kept in the request's scope like any response's. Default true.
+   */
+  followRedirects?: boolean | null;
 };
 
 export type NemuAidokuHttpResponse = {

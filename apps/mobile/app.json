@@ -4,7 +4,7 @@
     "slug": "nemu-mobile",
     "owner": "nemu-pm",
     "scheme": ["nemu", "aidoku"],
-    "version": "1.0.0",
+    "version": "1.0.1",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -73,6 +73,30 @@
             ]
           },
           {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeCrashData",
+            "NSPrivacyCollectedDataTypeLinked": false,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          },
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypePerformanceData",
+            "NSPrivacyCollectedDataTypeLinked": false,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          },
+          {
+            "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeOtherDiagnosticData",
+            "NSPrivacyCollectedDataTypeLinked": false,
+            "NSPrivacyCollectedDataTypeTracking": false,
+            "NSPrivacyCollectedDataTypePurposes": [
+              "NSPrivacyCollectedDataTypePurposeAppFunctionality"
+            ]
+          },
+          {
             "NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeOtherDataTypes",
             "NSPrivacyCollectedDataTypeLinked": true,
             "NSPrivacyCollectedDataTypeTracking": false,
@@ -124,9 +148,6 @@
         "NSMicrophoneUsageDescription": "nemu uses the microphone when you dictate a message to Nemu chat.",
         "NSSpeechRecognitionUsageDescription": "nemu uses speech recognition to turn what you say into text for Nemu chat.",
         "NSLocalNetworkUsageDescription": "nemu connects to a server on your local network only when you enter its address in a source's settings, such as a LANraragi server.",
-        "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true
-        },
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false,
           "UISceneConfigurations": {
@@ -237,7 +258,17 @@
             "imageWidth": 200
           }
         }
-      ]
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "nemu-pm",
+          "project": "nemu-mobile"
+        }
+      ],
+      "./plugins/with-sentry-upload-gate",
+      "./plugins/with-app-transport-security"
     ],
     "experiments": {
       "autolinkingModuleResolution": true,

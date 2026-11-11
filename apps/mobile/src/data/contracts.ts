@@ -20,9 +20,3 @@ export type MobileSourceRuntimeStatus =
   | "requires-runtime-port"
   | "unsupported";
 
-export type MobileSourceRuntimeProbe = {
-  sourceKind: "aidoku" | "tachiyomi";
-  status: MobileSourceRuntimeStatus;
-  detail: string;
-  packageUri?: string | null;
-};

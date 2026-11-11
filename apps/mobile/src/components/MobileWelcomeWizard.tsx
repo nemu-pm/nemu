@@ -968,6 +968,9 @@ function MobileWelcomeWizardContent({
       scroll={welcomeSheetPresentation.scroll}
       enablePanDownToClose={welcomeSheetPresentation.enablePanDownToClose}
       backgroundColor={tokens.background}
+      // Centred on the grabber across the sheet's full width, as About is:
+      // on the Duo's outer display the vertical bar's column is part of it.
+      contentIgnoresSafeAreaEdges="horizontal"
       // The intro step's app-icon glow bleeds upward; see the prop.
       androidContentHandle
       testID="MobileWelcomeWizard"

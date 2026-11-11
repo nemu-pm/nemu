@@ -82,6 +82,8 @@ VITE_CONVEX_SITE_URL=
 
 `VITE_CONVEX_URL` is used for Convex client operations. `VITE_CONVEX_SITE_URL` is used for Better Auth and Convex HTTP action endpoints.
 
+The committed root `.env.production` carries nemu's own Sentry DSNs (`VITE_SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`). A self-hosted build should remove them, or point them at its own Sentry projects, so its crash reports do not go to nemu.
+
 ### Convex Auth
 
 ```txt

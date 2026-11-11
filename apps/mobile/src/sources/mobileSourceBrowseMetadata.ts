@@ -14,7 +14,6 @@ import {
   normalizeMobileSourceListings,
 } from "@/lib/mobileSourceListingsPresentation";
 import {
-  type Listing,
   type MobileSourceExecutorOptions,
   type MobileSourceExecutorRuntime,
 } from "./mobileSourceExecutor";

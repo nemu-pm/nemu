@@ -34,14 +34,24 @@ const ios = readJson<AppConfig>("app.json").expo.ios;
 
 // The data types nemu declares as collected; change with the manifest.
 const COLLECTED = [
+  "NSPrivacyCollectedDataTypeCrashData",
   "NSPrivacyCollectedDataTypeEmailAddress",
   "NSPrivacyCollectedDataTypeName",
   "NSPrivacyCollectedDataTypeOtherDataTypes",
+  "NSPrivacyCollectedDataTypeOtherDiagnosticData",
   "NSPrivacyCollectedDataTypeOtherUserContent",
+  "NSPrivacyCollectedDataTypePerformanceData",
   "NSPrivacyCollectedDataTypePhotosorVideos",
   "NSPrivacyCollectedDataTypeProductInteraction",
   "NSPrivacyCollectedDataTypeUserID",
 ];
+// Crash reports (Sentry, scrubbed, no user ID): collected but not linked to
+// the user. Everything else belongs to the signed-in account.
+const NOT_LINKED = new Set([
+  "NSPrivacyCollectedDataTypeCrashData",
+  "NSPrivacyCollectedDataTypeOtherDiagnosticData",
+  "NSPrivacyCollectedDataTypePerformanceData",
+]);
 
 describe("iOS privacy manifest (app.json expo.ios.privacyManifests)", () => {
   test("does not track and declares no tracking domains", () => {
@@ -55,7 +65,9 @@ describe("iOS privacy manifest (app.json expo.ios.privacyManifests)", () => {
       COLLECTED,
     );
     for (const entry of declared) {
-      expect(entry.NSPrivacyCollectedDataTypeLinked).toBe(true);
+      expect(entry.NSPrivacyCollectedDataTypeLinked).toBe(
+        !NOT_LINKED.has(entry.NSPrivacyCollectedDataType),
+      );
       expect(entry.NSPrivacyCollectedDataTypeTracking).toBe(false);
       expect(entry.NSPrivacyCollectedDataTypePurposes).toEqual([
         "NSPrivacyCollectedDataTypePurposeAppFunctionality",

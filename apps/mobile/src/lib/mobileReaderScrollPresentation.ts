@@ -22,11 +22,6 @@ export const MOBILE_READER_SCROLL_PAGE_SPACING = 8;
 /** Side margin of the vertical list below a 100% page width. */
 export const MOBILE_READER_SCROLL_SIDE_MARGIN = 10;
 
-/**
- * Aidoku's per-manga `viewer` (the source's own reading format):
- * 0 default/unknown, 1 right-to-left, 2 left-to-right, 3 vertical, 4 webtoon.
- */
-export type MobileReaderSourceViewer = 0 | 1 | 2 | 3 | 4;
 export const MOBILE_READER_SOURCE_VIEWER_WEBTOON = 4;
 
 /**

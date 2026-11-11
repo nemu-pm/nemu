@@ -1,4 +1,4 @@
-const { getDefaultConfig } = require("expo/metro-config");
+const { getSentryExpoConfig } = require("@sentry/react-native/metro");
 const {
   getBundleModeMetroConfig,
 } = require("react-native-worklets/bundleMode");
@@ -10,7 +10,15 @@ const { isWorkletsBundleModeEnabled } = require("./workletsBundleMode.cjs");
 // `expo export`) must not bake the dev backend; fail the bundle step instead.
 require("./preflightRelease.cjs").enforceReleaseEnv(rootEnv);
 
-const config = getDefaultConfig(__dirname);
+// Expo's default config plus Sentry's: a debug ID in each bundle and its
+// source map (matched to the uploaded map at symbolication) and Sentry's own
+// frames collapsed in dev. No web replay/feedback packages, and no
+// sentry.options.json (options live in src/lib/mobileCrashReportingOptions.ts).
+const config = getSentryExpoConfig(__dirname, {
+  includeWebReplay: false,
+  includeWebFeedback: false,
+  optionsFile: false,
+});
 
 // babel-preset-expo inlines EXPO_PUBLIC_* values at transform time, but
 // Metro's transform cache (shared between `expo export` and the Xcode/Gradle

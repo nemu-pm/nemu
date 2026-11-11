@@ -72,6 +72,9 @@ import {
 import { ReaderPluginManagementRow } from "@/components/ReaderPluginManagementRow";
 import { useMobileReaderPluginSignedInState } from "@/components/useMobileReaderPluginSignedInState";
 import { MobileStorageBreakdown } from "@/components/MobileStorageBreakdown";
+import { useMobileDownloadState } from "@/lib/downloads/mobileDownloads";
+import { getMobileDownloadedBytes } from "@/lib/downloads/mobileDownloadQueue";
+import { formatMobileDownloadBytes } from "@/lib/downloads/useMobileDownloadsPage";
 import {
   QuickActionSheet,
   type QuickAction,
@@ -178,6 +181,10 @@ import {
   hapticSelection,
 } from "@/lib/haptics";
 import { canRunMobileSwitchSelectionFeedback } from "@/lib/mobileAccessibility";
+import {
+  setMobileCrashReportsEnabled,
+  useMobileCrashReportsEnabled,
+} from "@/lib/mobileCrashReporting";
 import {
   formatMobileString,
   getMobileStrings,
@@ -787,7 +794,8 @@ function SettingsGroupHeader({
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  description: string;
+  /** Omitted for a card whose rows explain themselves (Privacy, like the Agent card). */
+  description?: string;
   pageTitle?: string;
   trailing?: ReactNode;
 }) {
@@ -800,7 +808,9 @@ function SettingsGroupHeader({
         </View>
         <View style={styles.rowText}>
           <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>{title}</NemuText>
-          <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+          {description ? (
+            <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+          ) : null}
         </View>
         {trailing}
       </View>
@@ -825,7 +835,9 @@ function SettingsGroupHeader({
         <NemuText accessibilityRole="header" style={[styles.rowTitle, { color: tokens.foreground }]}>
           {title}
         </NemuText>
-        <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+        {description ? (
+          <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+        ) : null}
       </View>
       {trailing}
     </View>
@@ -1514,6 +1526,35 @@ function SourceDirectoriesSection({ strings, catalog, barItems }: {
  * Sources page: where sources come from (directories) and whether installed
  * ones update themselves. Refreshing a directory never installs anything.
  */
+/** Data: the row that opens Settings > Downloads, with what the downloads take up. */
+function DownloadsSettingsRow({ strings, disabled }: { strings: MobileStrings; disabled: boolean }) {
+  const downloads = useMobileDownloadState();
+  const size = formatMobileDownloadBytes(getMobileDownloadedBytes(downloads), strings);
+  const open = () => router.push("/(tabs)/settings/downloads");
+  return mobileDesignExploreFlag ? (
+    <ExploreSettingsGroup
+      rows={[{
+        key: "downloads",
+        icon: "arrow-down-circle-outline",
+        title: strings.downloads.title,
+        accessibilityLabel: strings.downloads.title,
+        accessibilityHint: strings.downloads.localOnlyFooter,
+        detail: size,
+        disabled,
+        onPress: open,
+      }]}
+    />
+  ) : (
+    <SettingsMenuRow
+      icon="arrow-down-circle-outline"
+      title={strings.downloads.title}
+      subtitle={size}
+      disabled={disabled}
+      onPress={open}
+    />
+  );
+}
+
 function SourceUpdatesGroup({
   strings,
   disabled,
@@ -1629,6 +1670,41 @@ function MobileFeedbackSettingsCard() {
           onToggle={(nextValue) => {
             void setHapticsFeedbackEnabled(nextValue);
           }}
+        />
+      </View>
+    </SettingsSurface>
+  );
+}
+
+/**
+ * Privacy choices for this device: today only "Share crash reports" (Sentry,
+ * on by default, scrubbed; see `mobileCrashReporting`). Device-local, not
+ * synced, and kept by "Clear all data".
+ */
+function MobilePrivacySettingsCard() {
+  const strings = getMobileStrings(useMobileLanguageSettings().appLanguage);
+  const crashReportsEnabled = useMobileCrashReportsEnabled();
+
+  return (
+    <SettingsSurface
+      style={styles.rowShell}
+      contentStyle={styles.dataManagementCard}
+    >
+      <SettingsGroupHeader
+        icon="hand-left-outline"
+        title={strings.settings.privacySection}
+      />
+      <View
+        style={[styles.dataActions, mobileDesignExploreFlag ? [styles.exploreInnerRows, styles.exploreSwitchRows] : null]}
+        testID="PrivacySettingsCard"
+      >
+        <FeedbackSettingRow
+          first
+          underHeading
+          title={strings.settings.shareCrashReports}
+          subtitle={strings.settings.shareCrashReportsHint}
+          value={crashReportsEnabled}
+          onToggle={setMobileCrashReportsEnabled}
         />
       </View>
     </SettingsSurface>
@@ -3765,6 +3841,7 @@ function SettingsScreenContent({
 
               {activeSection === "data" ? (
                 <>
+                  <DownloadsSettingsRow strings={strings} disabled={settingsActionBusy} />
                   <MobileStorageBreakdown
                     clearAllBusy={
                       pendingClearMode === "cache" ||
@@ -3810,6 +3887,8 @@ function SettingsScreenContent({
                       />
                     </SettingsSurface>
                   )}
+
+                  <MobilePrivacySettingsCard />
 
                   <View
                     onLayout={(event) => {

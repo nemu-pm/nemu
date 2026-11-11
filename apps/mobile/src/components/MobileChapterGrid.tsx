@@ -4,6 +4,7 @@ import { MobileChapterCell } from "@/components/MobileChapterCell";
 import type { AppLanguage, ChapterSummary, LocalChapterProgress } from "@/data/schema";
 import type { MobileChapterRow } from "@/lib/mobileChapterRows";
 import type { MobileStrings } from "@/lib/mobileI18n";
+import type { MobileDownloadMangaRef } from "@/lib/downloads/mobileDownloadTypes";
 
 type MobileChapterGridProps = {
   appLanguage?: AppLanguage;
@@ -14,6 +15,8 @@ type MobileChapterGridProps = {
   strings: MobileStrings;
   onPressChapter: (chapter: ChapterSummary) => void;
   showLanguage?: boolean;
+  downloadManga?: MobileDownloadMangaRef | null;
+  onLongPressChapter?: (chapter: ChapterSummary) => void;
 };
 
 export const MobileChapterGrid = memo(function MobileChapterGrid({
@@ -25,6 +28,8 @@ export const MobileChapterGrid = memo(function MobileChapterGrid({
   strings,
   onPressChapter,
   showLanguage = false,
+  downloadManga = null,
+  onLongPressChapter,
 }: MobileChapterGridProps) {
   return (
     <View style={styles.grid}>
@@ -39,6 +44,8 @@ export const MobileChapterGrid = memo(function MobileChapterGrid({
             strings={strings}
             onPress={onPressChapter}
             showLanguage={showLanguage}
+            downloadManga={downloadManga}
+            onLongPress={onLongPressChapter}
           />
         </View>
       ))}

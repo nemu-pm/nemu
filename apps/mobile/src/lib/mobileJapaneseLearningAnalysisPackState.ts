@@ -257,3 +257,63 @@ export function shouldStartMobileJapaneseLearningPackInstall({
   if (previous === null || previous === next || next === "cloud") return false;
   return state.kind === "notInstalled" || state.kind === "failed";
 }
+
+/**
+ * The reader opening with Japanese Learning on is the user about to read
+ * Japanese, so a missing pack downloads quietly before the first analysis
+ * needs it — but only on an unmetered connection (Wi-Fi or Ethernet, never
+ * cellular or an unknown link), only for on-device analysis, and only from
+ * a settled "not installed": a failure waits for the user's retry.
+ */
+export function shouldPrefetchMobileJapaneseLearningPack({
+  pluginEnabled,
+  preference,
+  state,
+  networkType,
+  internetReachable,
+}: {
+  pluginEnabled: boolean;
+  preference: MobileJapaneseLearningEnginePreference;
+  /** `unavailable` when this build has no on-device analyzer. */
+  state: MobileJapaneseLearningPackState;
+  /** expo-network `NetworkStateType`. */
+  networkType: string | undefined;
+  internetReachable: boolean | undefined;
+}): boolean {
+  if (!pluginEnabled || preference === "cloud") return false;
+  if (state.kind !== "notInstalled") return false;
+  if (networkType !== "WIFI" && networkType !== "ETHERNET") return false;
+  return internetReachable !== false;
+}
+
+/** Longest a progress bar waits for its next byte count. */
+export const MOBILE_JAPANESE_LEARNING_PACK_PROGRESS_INTERVAL_MS = 200;
+
+/**
+ * How long the store holds a change back before telling its views: byte
+ * counts within one phase arrive every 256 KB (hundreds on a fast network)
+ * and each re-renders every subscribed view, so they go out at most every
+ * `MOBILE_JAPANESE_LEARNING_PACK_PROGRESS_INTERVAL_MS`. Anything else — a
+ * new phase, the install starting, finishing or failing — goes out at once.
+ */
+export function mobileJapaneseLearningPackNotifyDelay({
+  previous,
+  next,
+  event,
+  sinceLastNotifyMs,
+}: {
+  previous: MobileJapaneseLearningPackState;
+  next: MobileJapaneseLearningPackState;
+  event: MobileJapaneseLearningPackEvent;
+  sinceLastNotifyMs: number;
+}): number {
+  if (
+    event.type !== "progress" ||
+    previous.kind !== "installing" ||
+    next.kind !== "installing" ||
+    previous.phase !== next.phase
+  ) {
+    return 0;
+  }
+  return Math.max(0, MOBILE_JAPANESE_LEARNING_PACK_PROGRESS_INTERVAL_MS - sinceLastNotifyMs);
+}

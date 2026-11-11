@@ -1,5 +1,7 @@
 import path from "path"
 import fs from "fs"
+import { execSync } from "child_process"
+import { sentryVitePlugin } from "@sentry/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, loadEnv, type Plugin } from "vite"
@@ -148,17 +150,62 @@ function localExtensionsPlugin(extensionsDir?: string): Plugin {
   }
 }
 
+/** The commit being built: Vercel's, else the checkout's, else none. */
+function buildCommitSha(env: Record<string, string>): string | undefined {
+  const fromEnv = env.VERCEL_GIT_COMMIT_SHA?.trim()
+  if (fromEnv) return fromEnv
+  try {
+    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   // Load env file to get VITE_TACHIYOMI_LOCAL_PATH
   const env = loadEnv(mode, process.cwd(), '')
+
+  // Crash reporting (src/lib/crash-reporting.ts): the release names the
+  // commit. Source maps are built (hidden: no sourceMappingURL comment) and
+  // uploaded only when SENTRY_AUTH_TOKEN is set, then deleted from dist so
+  // they are never served. Without the token the build has no maps and the
+  // plugin does nothing, so CI and forks build as before.
+  const commitSha = command === "build" ? buildCommitSha(env) : undefined
+  const sentryRelease = commitSha ? `nemu-web@${commitSha}` : undefined
+  const sentryAuthToken = env.SENTRY_AUTH_TOKEN?.trim() || undefined
+  const uploadSourceMaps = command === "build" && Boolean(sentryAuthToken && sentryRelease)
   
   return {
+  define: {
+    "import.meta.env.VITE_SENTRY_RELEASE": JSON.stringify(sentryRelease ?? ""),
+    "import.meta.env.VITE_SENTRY_ENVIRONMENT": JSON.stringify(env.VERCEL_ENV || "production"),
+  },
+  build: {
+    sourcemap: uploadSourceMaps ? "hidden" : false,
+  },
   plugins: [
     normalizeVendoredVaulCssPlugin(),
     react(),
     tailwindcss(),
     localExtensionsPlugin(env.VITE_TACHIYOMI_LOCAL_PATH),
+    sentryVitePlugin({
+      disable: !uploadSourceMaps,
+      org: env.SENTRY_ORG || "nemu-pm",
+      project: env.SENTRY_PROJECT || "nemu-web",
+      authToken: sentryAuthToken,
+      telemetry: false,
+      release: {
+        name: sentryRelease,
+        inject: false,
+        setCommits: false,
+        deploy: false,
+      },
+      sourcemaps: {
+        filesToDeleteAfterUpload: ["./dist/**/*.map"],
+        deleteSourcemapsAfterUpload: true,
+      },
+    }),
   ],
   resolve: {
     alias: {

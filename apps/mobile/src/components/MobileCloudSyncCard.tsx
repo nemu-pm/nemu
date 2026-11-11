@@ -12,7 +12,6 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
-  MobileNativeSheetScaffold,
   nemuColorWithAlpha,
   NemuPressable,
   radius,
@@ -41,8 +40,6 @@ import { MOBILE_EXPLORE_GROUP_SHAPE } from "@/lib/mobileExploreRadius";
 import { mobileAuthClient } from "@/sync/mobileAuthClient";
 import { retryMobileConvexAuth } from "@/sync/mobileConvexAuthRetry";
 import { isMobileAuthStorageUnavailable } from "@/sync/mobileAuthSecureStorage";
-import { unregisterMobileBackgroundSyncAsync } from "@/sync/mobileBackgroundSync";
-import { signOutAndUnregisterMobileBackgroundSync } from "@/sync/mobileBackgroundSyncLifecycle";
 import { mobileSyncConfig } from "@/sync/mobileSyncConfig";
 import { useMobileSecureStorageUnavailable } from "@/data/mobileSecureStorageFallback";
 import {
@@ -52,11 +49,7 @@ import {
 } from "@/sync/mobileSyncRuntime";
 import { runMobileForegroundSyncNow } from "@/sync/mobileSyncSnapshotState";
 import {
-  canSelectMobileCloudSignOutChoice,
-  canStartMobileCloudSignOut,
   canStartMobileOAuthSignIn,
-  completeMobileCloudSignOut,
-  getMobileCloudSignOutResultAction,
   normalizeMobileOAuthProvider,
   resolveMobileCloudSignInErrorDetail,
   resolveMobileOAuthSignInOutcome,
@@ -68,15 +61,6 @@ import {
   runMobileWebOAuthSession,
 } from "@/sync/mobileOAuthSession";
 import { useMobileDataStore } from "@/data/mobileDataContext";
-import { clearMobileAidokuSandboxDataForProfile } from "@/sources/mobileAidokuSandboxData";
-import {
-  makeMobileProfileId,
-  retainMobileDataProfile,
-} from "@/data/mobileDataProfile";
-import {
-  MOBILE_LOCAL_DATA_CLEANUP_UNAVAILABLE,
-  removeMobileDataProfileAfterSignOut,
-} from "@/data/mobileDataProfileCleanup";
 import {
   emitMobileDataChanged,
   useMobileDataRevision,

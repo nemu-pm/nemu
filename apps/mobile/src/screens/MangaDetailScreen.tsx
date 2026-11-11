@@ -85,7 +85,7 @@ import {
   usesNemuNativeHeader,
   type NemuNativeHeaderAction,
 } from "@/design-system";
-import { formatContinueActionLabel } from "@/lib/formatChapter";
+import { formatChapterTitle, formatContinueActionLabel } from "@/lib/formatChapter";
 import {
   formatMobileExploreChapterLabel,
   withoutMobileZeroVolume,
@@ -164,6 +164,16 @@ import {
   getMobileExploreChapterRowLayoutKind,
 } from "@/lib/mobileExploreChapterList";
 import { renderExploreDetailBarMenu } from "@/components/explore/ExploreDetailBarMenu";
+import {
+  renderMobileDownloadBarMenu,
+  renderMobileDownloadSelectionToolbars,
+} from "@/components/MobileDownloadBarMenu";
+import { useMobileMangaDownloads } from "@/lib/downloads/useMobileMangaDownloads";
+import { useMobileChapterDownloadStatus } from "@/lib/downloads/mobileDownloads";
+import { MOBILE_DOWNLOAD_NEXT_COUNT } from "@/lib/downloads/mobileDownloadSelection";
+import { QuickActionSheet, type QuickAction } from "@/components/QuickActionSheet";
+import { mobileDownloads } from "@/lib/downloads/mobileDownloads";
+import { mobileDownloadChapterKey } from "@/lib/downloads/mobileDownloadPaths";
 import { hasMobileUserCover, mobileExploreCoverOwnerUrl, withMobileExploreZoom } from "@/components/explore/mobileExploreCover";
 import { useMobileExploreZoomLanded } from "@/components/explore/mobileExploreZoomLanded";
 import { peekMobileExploreDetailHandoff } from "@/lib/mobileExploreDetailHandoff";
@@ -2052,7 +2062,18 @@ export function MangaDetailScreen() {
       openingReaderRef.current = true;
       setOpeningReader(true);
       const installedSource = sourceInfoForLink(source, state.installedSources);
-      if (installedSource) {
+      // A downloaded chapter opens from its files: nothing to warm up.
+      const downloaded = Boolean(
+        mobileDownloads.getState().chapters[
+          mobileDownloadChapterKey({
+            registryId: source.registryId,
+            sourceId: source.sourceId,
+            mangaId: source.sourceMangaId,
+            chapterId: chapter.id,
+          })
+        ],
+      );
+      if (installedSource && !downloaded) {
         void Promise.all([
           store.getSettings(),
           loadMobileSourceSettingsByKeys(store, [
@@ -2126,6 +2147,91 @@ export function MangaDetailScreen() {
       store,
     ],
   );
+  const toast = useMobileToast();
+  const downloads = useMobileMangaDownloads({
+    source: selectedSource,
+    chapters,
+    progressById: selectedChapterProgress,
+    title,
+    strings,
+    toast,
+  });
+  const { chapterAction: downloadChapterAction, selection: downloadSelection } = downloads;
+  // Android: a long press on a chapter, or the bar's Download button, opens
+  // the download actions as a sheet (iOS uses the row's and bar's menus).
+  const [downloadSheet, setDownloadSheet] = useState<{ chapter: ChapterSummary | null } | null>(null);
+  const openChapterDownloadSheet = useCallback((chapter: ChapterSummary) => setDownloadSheet({ chapter }), []);
+  const sheetChapterDownload = useMobileChapterDownloadStatus(downloads.manga, downloadSheet?.chapter?.id ?? "");
+  const downloadSheetActions = useMemo<QuickAction[]>(() => {
+    const run = (action: () => void) => () => {
+      setDownloadSheet(null);
+      action();
+    };
+    const chapter = downloadSheet?.chapter;
+    if (chapter) {
+      const status = sheetChapterDownload.kind;
+      return [
+        ...(status === "none" || status === "failed"
+          ? [{
+              id: "download",
+              label: status === "failed" ? strings.downloads.retryDownload : strings.downloads.downloadChapter,
+              icon: "download-outline" as const,
+              onPress: run(() => downloads.chapterAction(chapter, "download")),
+            }]
+          : []),
+        ...(status === "queued" || status === "downloading" || status === "paused" || status === "failed"
+          ? [{
+              id: "cancel",
+              label: strings.downloads.cancelDownload,
+              icon: "close-circle-outline" as const,
+              onPress: run(() => downloads.chapterAction(chapter, "cancelDownload")),
+            }]
+          : []),
+        ...(status === "downloaded"
+          ? [{
+              id: "remove",
+              label: strings.downloads.removeDownload,
+              icon: "trash-outline" as const,
+              destructive: true,
+              onPress: run(() => downloads.chapterAction(chapter, "removeDownload")),
+            }]
+          : []),
+      ];
+    }
+    return [
+      {
+        id: "next",
+        label: formatMobileString(strings.downloads.downloadNext, { count: MOBILE_DOWNLOAD_NEXT_COUNT }),
+        icon: "download-outline" as const,
+        onPress: run(() => downloads.downloadScope({ kind: "next", count: MOBILE_DOWNLOAD_NEXT_COUNT })),
+      },
+      {
+        id: "unread",
+        label: strings.downloads.downloadUnread,
+        icon: "download-outline" as const,
+        onPress: run(() => downloads.downloadScope({ kind: "unread" })),
+      },
+      {
+        id: "all",
+        label: strings.downloads.downloadAll,
+        icon: "download-outline" as const,
+        onPress: run(() => downloads.downloadScope({ kind: "all" })),
+      },
+      ...(downloads.hasQueued
+        ? [{ id: "cancel", label: strings.downloads.cancelDownloads, icon: "close-circle-outline" as const, onPress: run(downloads.cancelAll) }]
+        : []),
+      ...(downloads.hasDownloaded
+        ? [{
+            id: "remove",
+            label: strings.downloads.removeDownloads,
+            icon: "trash-outline" as const,
+            destructive: true,
+            onPress: run(downloads.confirmRemoveAll),
+          }]
+        : []),
+      { id: "manage", label: strings.downloads.manageDownloads, icon: "settings-outline" as const, onPress: run(downloads.openManager) },
+    ];
+  }, [downloadSheet, downloads, sheetChapterDownload.kind, strings]);
   // The row is memoized, so its props have to keep their identity across a
   // re-render of this screen; an inline `renderItem` re-rendered every mounted
   // chapter row on each state change.
@@ -2141,11 +2247,15 @@ export function MangaDetailScreen() {
         onPressChapter={openReader}
         appLanguage={appLanguage}
         showLanguage={showChapterLanguage}
+        downloadManga={downloads.manga}
+        onLongPressChapter={downloads.manga ? openChapterDownloadSheet : undefined}
       />
     ),
     [
       appLanguage,
       detailActionBusy,
+      downloads.manga,
+      openChapterDownloadSheet,
       openReader,
       showChapterLanguage,
       selectedChapterProgress,
@@ -2239,7 +2349,6 @@ export function MangaDetailScreen() {
     () => selectMobileChapterProgressToMarkUnread(chapters, selectedChapterProgress, { kind: "all" }).length > 0,
     [chapters, selectedChapterProgress],
   );
-  const toast = useMobileToast();
   const shareLink = useCallback(async (url: string | null) => {
     if (!url) return;
     try {
@@ -2282,12 +2391,30 @@ export function MangaDetailScreen() {
         case "copyLink":
           void copyLink(resolveMobileShareUrl(chapter.url));
           return;
+        case "download":
+        case "cancelDownload":
+        case "removeDownload":
+          downloadChapterAction(chapter, action);
+          return;
+        case "toggleSelected":
+          downloadSelection.toggleSelected(chapter);
+          return;
         default:
           openReader(chapter, selectedSource, action === "start" ? 1 : undefined);
       }
     },
-    [copyLink, markChaptersRead, markChaptersUnread, openReader, selectedSource, shareLink],
+    [
+      copyLink,
+      downloadChapterAction,
+      downloadSelection,
+      markChaptersRead,
+      markChaptersUnread,
+      openReader,
+      selectedSource,
+      shareLink,
+    ],
   );
+  const selectedChapterIds = downloadSelection.selected;
   const renderExploreChapterRow = useCallback(
     ({ item }: ListRenderItemInfo<MobileChapterRow>) => {
       const chapter = item.chapters[0];
@@ -2304,6 +2431,8 @@ export function MangaDetailScreen() {
             strings={strings}
             onAction={onExploreChapterAction}
             moreActions
+            downloadManga={downloads.manga}
+            selected={selectedChapterIds ? selectedChapterIds.has(chapter.id) : null}
           />
         </Animated.View>
       );
@@ -2312,7 +2441,9 @@ export function MangaDetailScreen() {
       chapterCommonGroup,
       chapterVolumeHeaders,
       detailActionBusy,
+      downloads.manga,
       onExploreChapterAction,
+      selectedChapterIds,
       selectedChapterProgress,
       strings,
       upNextChapterId,
@@ -2652,6 +2783,16 @@ export function MangaDetailScreen() {
               },
             ]
           : []),
+        ...(!booksHero && downloads.manga
+          ? [
+              {
+                icon: "square.and.arrow.down" as const,
+                label: strings.downloads.menu,
+                disabled: !entry || detailActionBusy,
+                onPress: () => setDownloadSheet({ chapter: null }),
+              },
+            ]
+          : []),
         {
           icon: "pencil",
           label: strings.mangaDetail.editMetadata,
@@ -2683,7 +2824,7 @@ export function MangaDetailScreen() {
     barMenu && mobileExploreDetailRailHasButtons(adaptiveLayout),
   );
   const barTrailingItems = barMenu
-    ? barActions.buttons.length + Math.min(1, barActions.menu.length)
+    ? barActions.buttons.length + Math.min(1, barActions.menu.length) + (downloads.manga ? 1 : 0)
     : nativeHeaderActions.length;
   const renderExploreBarTitle = useCallback(
     () => (
@@ -2847,16 +2988,33 @@ export function MangaDetailScreen() {
                 : nativeHeaderOptions(title)
             }
           />
-          {nativeHeaderActions.length && (zoomLanded || barMenu) ? (
+          {selectedChapterIds ? (
+            renderMobileDownloadSelectionToolbars(downloads, strings)
+          ) : nativeHeaderActions.length && (zoomLanded || barMenu) ? (
             <Stack.Toolbar placement="right">
               {/* Siblings, not a fragment: the toolbar reads its direct children. */}
               {barMenu ? renderNemuNativeToolbarButtons(barActions.buttons) : null}
+              {barMenu && entry ? renderMobileDownloadBarMenu(downloads, strings, detailActionBusy) : null}
               {barMenu
                 ? renderExploreDetailBarMenu(barActions.menu, strings.designExplore.moreActions)
                 : renderNemuNativeToolbarButtons(nativeHeaderActions)}
             </Stack.Toolbar>
           ) : null}
         </>
+      ) : null}
+      {!booksHero ? (
+        <QuickActionSheet
+          visible={downloadSheet !== null}
+          variant="cover"
+          title={downloadSheet?.chapter ? formatChapterTitle(downloadSheet.chapter, strings) : strings.downloads.title}
+          subtitle={title}
+          image={coverImage.source?.uri ?? undefined}
+          imageHeaders={coverImage.source?.headers}
+          actions={downloadSheetActions}
+          testID="MangaDownloadSheet"
+          onClose={() => setDownloadSheet(null)}
+          onDismiss={() => setDownloadSheet(null)}
+        />
       ) : null}
       {metadataEditorPresentation ? (
         <MobileMetadataEditorSheet

@@ -19,6 +19,7 @@ import {
   isSelfHostedKind,
   normalizeServerUrl,
   readSelfHostedCredentials,
+  selfHostedKindTakesApiKey,
   selfHostedSourceKey,
   type SelfHostedKind,
 } from "@/lib/selfHosted/policy";
@@ -94,7 +95,7 @@ export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }:
       return;
     }
     // A key replaces a username and password; typing both would be ambiguous.
-    const credentials = apiKey.trim()
+    const credentials = apiKey.trim() && selfHostedKindTakesApiKey(kind)
       ? { apiKey: apiKey.trim() }
       : username.trim() || password
         ? { username: username.trim(), password }
@@ -153,9 +154,12 @@ export function useServerSourceForm(params: ServerSourceFormParams, { onSaved }:
     }
   }, [apiKey, appLanguage, editingId, kind, name, onSaved, password, server, store, strings, username]);
 
+  const takesApiKey = kind === null || selfHostedKindTakesApiKey(kind);
   return {
     strings,
     kind,
+    takesApiKey,
+    loginFooter: takesApiKey ? strings.selfHosted.loginFooter : strings.selfHosted.loginFooterPassword,
     kindName: kind ? selfHostedKindName(kind) : "",
     serverPlaceholder: formatMobileString(strings.selfHosted.serverAddressPlaceholder, {
       port: SELF_HOSTED_DEFAULT_PORTS[kind ?? "komga"],

@@ -9,6 +9,11 @@ export type SelfHostedKind = (typeof SELF_HOSTED_KINDS)[number];
 /** The kinds the Add Source sheet offers a setup form for. */
 export const SELF_HOSTED_SETUP_KINDS: readonly SelfHostedKind[] = ["komga", "kavita", "suwayomi"];
 
+/** Kinds with API keys. Suwayomi has none: its login is a username and password. */
+export function selfHostedKindTakesApiKey(kind: SelfHostedKind): boolean {
+  return kind !== "suwayomi";
+}
+
 /** Each server's out-of-the-box port, shown in the address field's placeholder. */
 export const SELF_HOSTED_DEFAULT_PORTS: Readonly<Record<SelfHostedKind, number>> = {
   komga: 25600,
