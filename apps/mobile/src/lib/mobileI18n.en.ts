@@ -909,9 +909,8 @@ export const mobileStringsEn: MobileStrings = {
     feedbackSection: "Haptics & Cues",
     feedbackSectionDescription: "Vibration and completion cues",
     privacySection: "Privacy",
-    privacySectionDescription: "What this device sends to nemu",
     shareCrashReports: "Share crash reports",
-    shareCrashReportsHint: "Anonymous reports that help fix crashes. Never what you read.",
+    shareCrashReportsHint: "Sends anonymous reports when nemu crashes, so we can fix it.",
     readerDescriptionWithFeedback:
       "Reading direction, scrolling, page layout, and haptics",
     agent: "Nemu Agent",
@@ -1457,7 +1456,7 @@ export const mobileStringsEn: MobileStrings = {
     storageUsed: "Storage Used",
     storageUnitGigabytes: "{{value}} GB",
     wifiOnly: "Download over Wi-Fi Only",
-    wifiOnlyFooter: "Chapters wait for Wi-Fi instead of using mobile data.",
+    wifiOnlyFooter: "Chapters download only on Wi-Fi.",
     queueSection: "Queue",
     pauseAll: "Pause All",
     resumeAll: "Resume All",
@@ -1480,6 +1479,6 @@ export const mobileStringsEn: MobileStrings = {
     deleteAllTitle: "Delete all downloads?",
     deleteAllMessage: "{{size}} of downloaded chapters will be removed from this device. Your library and reading progress stay.",
     delete: "Delete",
-    localOnlyFooter: "Downloaded chapters stay on this device and are not synced.",
+    localOnlyFooter: "Downloaded chapters are kept on this device only.",
   },
 };

@@ -918,9 +918,8 @@ export const mobileStringsJa: MobileStrings = {
     feedbackSection: "触覚とヒント",
     feedbackSectionDescription: "振動と読了時のヒント",
     privacySection: "プライバシー",
-    privacySectionDescription: "このデバイスから nemu に送る情報",
     shareCrashReports: "クラッシュレポートを共有",
-    shareCrashReportsHint: "クラッシュ修正のための匿名レポート。読んでいる作品は含みません",
+    shareCrashReportsHint: "nemu がクラッシュしたときに匿名のレポートを送信し、修正に役立てます",
     readerDescriptionWithFeedback:
       "読み方向、スクロール、ページレイアウトと触覚",
     agent: "Nemu Agent",
@@ -1468,7 +1467,7 @@ export const mobileStringsJa: MobileStrings = {
     storageUsed: "使用容量",
     storageUnitGigabytes: "{{value}} GB",
     wifiOnly: "Wi-Fi接続時のみダウンロード",
-    wifiOnlyFooter: "モバイルデータ通信は使わず、Wi-Fiに接続するまで待ちます。",
+    wifiOnlyFooter: "Wi-Fi 接続時にのみチャプターをダウンロードします。",
     queueSection: "待機中",
     pauseAll: "すべて一時停止",
     resumeAll: "すべて再開",
@@ -1491,6 +1490,6 @@ export const mobileStringsJa: MobileStrings = {
     deleteAllTitle: "すべてのダウンロードを削除しますか？",
     deleteAllMessage: "このデバイスから{{size}}のダウンロード済みチャプターを削除します。ライブラリと読書の進み具合はそのままです。",
     delete: "削除",
-    localOnlyFooter: "ダウンロードしたチャプターはこのデバイスにのみ保存され、同期されません。",
+    localOnlyFooter: "ダウンロードしたチャプターはこのデバイスにのみ保存されます。",
   },
 };

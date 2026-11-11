@@ -806,7 +806,6 @@ export type MobileStrings = {
     feedbackSection: string;
     feedbackSectionDescription: string;
     privacySection: string;
-    privacySectionDescription: string;
     shareCrashReports: string;
     shareCrashReportsHint: string;
     readerDescriptionWithFeedback: string;

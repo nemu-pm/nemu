@@ -794,7 +794,8 @@ function SettingsGroupHeader({
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
-  description: string;
+  /** Omitted for a card whose rows explain themselves (Privacy, like the Agent card). */
+  description?: string;
   pageTitle?: string;
   trailing?: ReactNode;
 }) {
@@ -807,7 +808,9 @@ function SettingsGroupHeader({
         </View>
         <View style={styles.rowText}>
           <NemuText style={[styles.rowTitle, { color: tokens.foreground }]}>{title}</NemuText>
-          <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+          {description ? (
+            <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+          ) : null}
         </View>
         {trailing}
       </View>
@@ -832,7 +835,9 @@ function SettingsGroupHeader({
         <NemuText accessibilityRole="header" style={[styles.rowTitle, { color: tokens.foreground }]}>
           {title}
         </NemuText>
-        <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+        {description ? (
+          <NemuText style={[styles.rowSubtitle, { color: tokens.mutedForeground }]}>{description}</NemuText>
+        ) : null}
       </View>
       {trailing}
     </View>
@@ -1686,9 +1691,8 @@ function MobilePrivacySettingsCard() {
       contentStyle={styles.dataManagementCard}
     >
       <SettingsGroupHeader
-        icon="shield-checkmark-outline"
+        icon="hand-left-outline"
         title={strings.settings.privacySection}
-        description={strings.settings.privacySectionDescription}
       />
       <View
         style={[styles.dataActions, mobileDesignExploreFlag ? [styles.exploreInnerRows, styles.exploreSwitchRows] : null]}
