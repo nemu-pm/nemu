@@ -77,7 +77,7 @@ function start(): void {
     enhanceFetchErrorMessages: false,
     // No Session Replay, profiling, logs or user feedback: only errors and a
     // small sample of performance traces.
-    tracesSampleRate: 0.05,
+    tracesSampleRate: 0.2,
     // Never add trace headers to requests (sources and servers are third
     // parties; nemu's own backends don't read them).
     tracePropagationTargets: [],
