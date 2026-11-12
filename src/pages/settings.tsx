@@ -578,24 +578,6 @@ export function SettingsPage() {
               {t("settings.clear")}
             </Button>
           </div>
-          {crashReportingAvailable && (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="font-medium">{t("settings.shareCrashReports")}</p>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings.shareCrashReportsDescription")}
-                </p>
-              </div>
-              <Switch
-                checked={crashReportsEnabled}
-                aria-label={t("settings.shareCrashReports")}
-                onCheckedChange={(checked) => {
-                  setCrashReportsEnabled(checked);
-                  setCrashReportsEnabledState(checked);
-                }}
-              />
-            </div>
-          )}
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="font-medium">{t("settings.clearAllData")}</p>
@@ -615,6 +597,33 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Privacy */}
+      {crashReportingAvailable && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("settings.privacy")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">{t("settings.shareCrashReports")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t("settings.shareCrashReportsDescription")}
+                </p>
+              </div>
+              <Switch
+                checked={crashReportsEnabled}
+                aria-label={t("settings.shareCrashReports")}
+                onCheckedChange={(checked) => {
+                  setCrashReportsEnabled(checked);
+                  setCrashReportsEnabledState(checked);
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Nemu Agent */}
       <AgentStatusCard />

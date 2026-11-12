@@ -309,6 +309,7 @@
     "dataManagement": "数据管理",
     "clearCache": "清除缓存",
     "clearCacheDescription": "删除下载的来源文件和缓存数据",
+    "privacy": "隐私",
     "shareCrashReports": "共享崩溃报告",
     "shareCrashReportsDescription": "匿名报告，用于修复崩溃，不含你阅读的内容",
     "clear": "清除",

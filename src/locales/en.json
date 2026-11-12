@@ -314,6 +314,7 @@
     "dataManagement": "Data Management",
     "clearCache": "Clear Cache",
     "clearCacheDescription": "Remove downloaded source files and cached data",
+    "privacy": "Privacy",
     "shareCrashReports": "Share crash reports",
     "shareCrashReportsDescription": "Anonymous reports that help fix crashes. Never what you read.",
     "clear": "Clear",
