@@ -316,7 +316,7 @@
     "clearCacheDescription": "Remove downloaded source files and cached data",
     "privacy": "Privacy",
     "shareCrashReports": "Share crash reports",
-    "shareCrashReportsDescription": "Anonymous reports that help fix crashes. Never what you read.",
+    "shareCrashReportsDescription": "Sends an anonymous report when nemu crashes.",
     "clear": "Clear",
     "clearAllData": "Clear All Data",
     "clearAllDataDescription": "Reset everything and start fresh",

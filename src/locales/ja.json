@@ -311,7 +311,7 @@
     "clearCacheDescription": "ダウンロードしたソースファイルとキャッシュデータを削除します",
     "privacy": "プライバシー",
     "shareCrashReports": "クラッシュレポートを共有",
-    "shareCrashReportsDescription": "クラッシュ修正のための匿名レポート。読んでいる作品は含みません",
+    "shareCrashReportsDescription": "nemu がクラッシュしたときに匿名のレポートを送信します",
     "clear": "クリア",
     "clearAllData": "すべてのデータをクリア",
     "clearAllDataDescription": "すべてをリセットして最初からやり直します",
